@@ -24,19 +24,8 @@ int g_windowWidth = 1200;
 int g_windowHeight = 800;
 
 void screenToGL(double screenX, double screenY, float& glX, float& glY, int width, int height) {
-    // 기본 변환
-    glX = (2.0f * screenX / width) - 1.0f;
-    glY = 1.0f - (2.0f * screenY / height);
-    
-    // 종횡비 조정 (투영 매트릭스와 일치하도록)
-    float aspect = (float)width / (float)height;
-    if (aspect > 1.0f) {
-        // 가로가 더 넓은 경우
-        glX *= aspect;
-    } else {
-        // 세로가 더 넓은 경우
-        glY /= aspect;
-    }
+    // 줌을 고려한 좌표 변환을 위해 screenToWorld 함수를 사용
+    screenToWorld(screenX, screenY, glX, glY, uiState, width, height);
 }
 
 // 창 크기 변경 콜백
@@ -48,21 +37,8 @@ void framebufferSizeCallback(GLFWwindow* window, int width, int height) {
     // UI에 창 크기 정보 전달
     setWindowSize(width, height);
     
-    // 종횡비 유지를 위한 투영 매트릭스 설정
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    
-    float aspect = (float)width / (float)height;
-    if (aspect > 1.0f) {
-        // 가로가 더 넓은 경우
-        glOrtho(-aspect, aspect, -1.0f, 1.0f, -1.0f, 1.0f);
-    } else {
-        // 세로가 더 넓은 경우
-        glOrtho(-1.0f, 1.0f, -1.0f/aspect, 1.0f/aspect, -1.0f, 1.0f);
-    }
-    
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
+    // 줌을 고려한 투영 매트릭스 설정
+    applyZoomToProjection(uiState, width, height);
 }
 
 int findNearestBody(float x, float y) {
@@ -137,13 +113,38 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
                 std::cout << "Applying direction drag" << std::endl;
                 applyDirectionDrag(uiState);
             }
+            if (uiState.panning) {
+                stopPanning(uiState);
+            }
             uiState.dragging = false;
             uiState.draggingDirection = false;
+        }
+    }
+    else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
+        if (action == GLFW_PRESS) {
+            // 우클릭으로 화면 패닝 시작 (편집 모드가 아닐 때만)
+            if (uiState.editMode == EditMode::NONE) {
+                double mouseX, mouseY;
+                glfwGetCursorPos(window, &mouseX, &mouseY);
+                startPanning(uiState, mouseX, mouseY);
+            }
+        }
+        else if (action == GLFW_RELEASE) {
+            if (uiState.panning) {
+                stopPanning(uiState);
+            }
         }
     }
 }
 
 void cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
+    // 패닝 업데이트 (화면 좌표로 처리)
+    if (uiState.panning) {
+        updatePanning(uiState, xpos, ypos, g_windowWidth, g_windowHeight);
+        applyZoomToProjection(uiState, g_windowWidth, g_windowHeight);
+        return;
+    }
+    
     float glX, glY;
     screenToGL(xpos, ypos, glX, glY, g_windowWidth, g_windowHeight);
     
@@ -158,6 +159,23 @@ void cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
         bodies[uiState.selectedBody].x = glX;
         bodies[uiState.selectedBody].y = glY;
     }
+}
+
+// 마우스 휠 콜백 (줌 기능)
+void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
+    // 편집 모드에서는 줌 비활성화
+    if (uiState.editMode != EditMode::NONE) {
+        return;
+    }
+    
+    // 줌 변경량 계산
+    float zoomDelta = yoffset * uiState.zoomSensitivity;
+    
+    // 줌 업데이트 (화면 중앙 기준, 마우스 위치 무시)
+    updateZoom(uiState, zoomDelta);
+    
+    // 투영 매트릭스 업데이트
+    applyZoomToProjection(uiState, g_windowWidth, g_windowHeight);
 }
 
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
@@ -188,11 +206,19 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                 uiState.dragging = false;
                 uiState.paused = false;
                 uiState.editMode = EditMode::NONE;
+                // 줌 리셋
+                resetZoom(uiState);
+                applyZoomToProjection(uiState, g_windowWidth, g_windowHeight);
                 // 궤도도 초기화
                 initializeTrails(orbitTrails, bodies.size());
                 break;
             case GLFW_KEY_I:
                 uiState.showInfo = !uiState.showInfo;
+                break;
+            case GLFW_KEY_H:
+                // 크로스헤어 토글
+                uiState.showCrosshair = !uiState.showCrosshair;
+                std::cout << "Crosshair " << (uiState.showCrosshair ? "enabled" : "disabled") << std::endl;
                 break;
             case GLFW_KEY_V:
                 // 속도 편집 모드 토글
@@ -329,7 +355,16 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                 break;
                 
             // 숫자키와 소수점, 마이너스 처리
-            case GLFW_KEY_0: case GLFW_KEY_1: case GLFW_KEY_2: case GLFW_KEY_3: case GLFW_KEY_4:
+            case GLFW_KEY_0:
+                // 0키 특별 처리: 편집 모드가 아닐 때 줌 리셋
+                if (uiState.editMode == EditMode::NONE && !uiState.textInputMode) {
+                    resetZoom(uiState);
+                    applyZoomToProjection(uiState, g_windowWidth, g_windowHeight);
+                    break;
+                }
+                // 편집 모드일 때는 일반 숫자 입력으로 처리
+                [[fallthrough]];
+            case GLFW_KEY_1: case GLFW_KEY_2: case GLFW_KEY_3: case GLFW_KEY_4:
             case GLFW_KEY_5: case GLFW_KEY_6: case GLFW_KEY_7: case GLFW_KEY_8: case GLFW_KEY_9:
                 if (uiState.textInputMode) {
                     char digit = '0' + (key - GLFW_KEY_0);
@@ -361,22 +396,6 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                 }
                 break;
                 
-            case GLFW_KEY_MINUS: // 마이너스
-                if (uiState.textInputMode) {
-                    handleTextInput(uiState, '-');
-                    std::cout << "Input: " << uiState.inputBuffer << std::endl;
-                } else if (uiState.editMode != EditMode::NONE && uiState.selectedBody != -1) {
-                    // 마이너스키를 누르면 텍스트 입력 시작
-                    if (uiState.editMode == EditMode::MASS) {
-                        startTextInput(uiState, 2);
-                    } else if (uiState.editMode == EditMode::VELOCITY) {
-                        startTextInput(uiState, uiState.currentEditField);
-                    }
-                    handleTextInput(uiState, '-');
-                    std::cout << "Started text input with minus" << std::endl;
-                }
-                break;
-                
             case GLFW_KEY_TAB:
                 // 필드 전환
                 if (uiState.editMode == EditMode::ADD_BODY && !uiState.textInputMode) {
@@ -399,6 +418,34 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                         fieldName = (uiState.currentEditField == 0) ? "R" : "th";
                     }
                     std::cout << "TAB - switched to " << fieldName << " field" << std::endl;
+                }
+                break;
+                
+            case GLFW_KEY_EQUAL:  // '+' key for zoom in
+            case GLFW_KEY_KP_ADD:
+                if (uiState.editMode == EditMode::NONE) {
+                    updateZoom(uiState, 0.2f);
+                    applyZoomToProjection(uiState, g_windowWidth, g_windowHeight);
+                }
+                break;
+                
+            case GLFW_KEY_MINUS:  // '-' key for zoom out
+            case GLFW_KEY_KP_SUBTRACT:
+                if (uiState.editMode == EditMode::NONE && !uiState.textInputMode) {
+                    updateZoom(uiState, -0.2f);
+                    applyZoomToProjection(uiState, g_windowWidth, g_windowHeight);
+                } else if (uiState.textInputMode) {
+                    handleTextInput(uiState, '-');
+                    std::cout << "Input: " << uiState.inputBuffer << std::endl;
+                } else if (uiState.editMode != EditMode::NONE && uiState.selectedBody != -1) {
+                    // 마이너스키를 누르면 텍스트 입력 시작 (기존 기능 유지)
+                    if (uiState.editMode == EditMode::MASS) {
+                        startTextInput(uiState, 2);
+                    } else if (uiState.editMode == EditMode::VELOCITY) {
+                        startTextInput(uiState, uiState.currentEditField);
+                    }
+                    handleTextInput(uiState, '-');
+                    std::cout << "Started text input with minus" << std::endl;
                 }
                 break;
         }
@@ -427,11 +474,15 @@ int main() {
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetCursorPosCallback(window, cursorPosCallback);
     glfwSetKeyCallback(window, keyCallback);
+    glfwSetScrollCallback(window, scrollCallback);
     glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
     
     // 초기 창 크기 설정
     glfwGetFramebufferSize(window, &g_windowWidth, &g_windowHeight);
     framebufferSizeCallback(window, g_windowWidth, g_windowHeight);
+    
+    // 초기 줌 설정 적용
+    applyZoomToProjection(uiState, g_windowWidth, g_windowHeight);
     
     // 초기 물체 설정
     bodies = initBodies;
@@ -445,7 +496,9 @@ int main() {
     
     std::cout << "=== 3-Body Simulation Started ===" << std::endl;
     std::cout << "Controls:" << std::endl;
-    std::cout << "  Mouse: Click and drag to move bodies" << std::endl;
+    std::cout << "  Left Mouse: Click and drag to move bodies" << std::endl;
+    std::cout << "  Right Mouse: Drag to pan view" << std::endl;
+    std::cout << "  Mouse wheel: Zoom in/out (screen center)" << std::endl;
     std::cout << "  Space: Pause/Resume simulation" << std::endl;
     std::cout << "  V: Edit velocity of selected body" << std::endl;
     std::cout << "  M: Edit mass of selected body" << std::endl;
@@ -454,11 +507,14 @@ int main() {
     std::cout << "  T: Toggle orbit trails" << std::endl;
     std::cout << "  B: Adjust wall bounce (0-100%)" << std::endl;
     std::cout << "  C: Toggle coordinate system (Cartesian/Polar)" << std::endl;
+    std::cout << "  H: Toggle crosshair" << std::endl;
     std::cout << "  Numbers: Type to edit values" << std::endl;
     std::cout << "  TAB: Switch field when editing velocity" << std::endl;
     std::cout << "  Mouse drag: Set velocity direction (in velocity mode)" << std::endl;
+    std::cout << "  +/-: Zoom in/out (keyboard)" << std::endl;
+    std::cout << "  0: Reset zoom to default" << std::endl;
     std::cout << "  Enter: Apply changes" << std::endl;
-    std::cout << "  R: Reset to initial positions" << std::endl;
+    std::cout << "  R: Reset to initial positions and zoom" << std::endl;
     std::cout << "  I: Toggle info display" << std::endl;
     std::cout << "  ESC: Exit (or cancel editing)" << std::endl;
     
@@ -505,15 +561,16 @@ int main() {
             glEnd();
         }
         
-        // UI 그리기
-        drawInfo(bodies, uiState);
+        // 크로스헤어 그리기 (물체들과 UI 사이에)
+        drawCrosshair(uiState);
         
-        // 선택된 물체의 현재 속도 벡터 표시
+        // 선택된 물체의 현재 속도 벡터 표시 (world coordinates)
         drawCurrentVelocityVector(bodies, uiState);
         
-        // 물체 추가 모드 미리보기
+        // 물체 추가 모드 미리보기 (world coordinates)
         drawAddBodyPreview(uiState);
         
+        // World coordinate editors (affected by zoom/pan)
         if (uiState.editMode == EditMode::VELOCITY) {
             drawVelocityEditor(bodies, uiState);
         } else if (uiState.editMode == EditMode::MASS) {
@@ -523,7 +580,10 @@ int main() {
         } else if (uiState.editMode == EditMode::DELETE_CONFIRM) {
             drawDeleteConfirm(bodies, uiState);
         }
-        drawCoordinateMode(uiState.coordMode);
+        
+        // Screen-fixed UI 그리기 (not affected by zoom/pan)
+        drawInfoFixed(bodies, uiState, g_windowWidth, g_windowHeight);
+        drawCoordinateModeFixed(uiState.coordMode, g_windowWidth, g_windowHeight);
         
         glfwSwapBuffers(window);
         glfwPollEvents();

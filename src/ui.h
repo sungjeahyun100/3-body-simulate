@@ -28,6 +28,22 @@ struct UIState {
     bool dragging = false;
     bool paused = false;
     
+    // Zoom system
+    float zoomLevel = 1.0f;        // Current zoom level (1.0 = normal, >1.0 = zoomed in, <1.0 = zoomed out)
+    float zoomCenterX = 0.0f;      // Zoom center X in world coordinates
+    float zoomCenterY = 0.0f;      // Zoom center Y in world coordinates
+    float minZoom = 0.1f;          // Minimum zoom level (max zoom out)
+    float maxZoom = 10.0f;         // Maximum zoom level (max zoom in)
+    float zoomSensitivity = 0.1f;  // Zoom sensitivity for scroll wheel
+    
+    // Camera panning system
+    bool panning = false;          // Is currently panning the view
+    float panStartX = 0.0f;        // Pan start position X (screen coordinates)
+    float panStartY = 0.0f;        // Pan start position Y (screen coordinates)
+    float panStartCenterX = 0.0f;  // Zoom center at pan start X
+    float panStartCenterY = 0.0f;  // Zoom center at pan start Y
+    bool showCrosshair = true;     // Show crosshair at screen center
+    
     // Velocity editing
     float editVelocityR = 0.0f;     // Polar magnitude
     float editVelocityTheta = 0.0f; // Polar angle (degrees)
@@ -84,6 +100,12 @@ void drawDirectionArrow(const UIState& uiState);
 void drawCurrentVelocityVector(const std::vector<Body>& bodies, const UIState& uiState);
 void drawAddBodyEditor(UIState& uiState);
 void drawAddBodyPreview(const UIState& uiState);
+
+// Screen-fixed UI functions (not affected by zoom/pan)
+void setupScreenFixedProjection(int windowWidth, int windowHeight);
+void restoreWorldProjection(const UIState& uiState, int windowWidth, int windowHeight);
+void drawInfoFixed(const std::vector<Body>& bodies, const UIState& uiState, int windowWidth, int windowHeight);
+void drawCoordinateModeFixed(CoordinateMode mode, int windowWidth, int windowHeight);
 
 // Orbit trail functions
 void initializeTrails(OrbitTrails& trails, size_t numBodies);
@@ -142,5 +164,20 @@ void getWindowSize(int& width, int& height);
 float getAspectRatio();
 float getResponsiveTextSize(float baseSize);
 float getResponsiveTextSizeSmall(float baseSize);
+
+// Zoom functions
+void updateZoom(UIState& uiState, float deltaZoom, float mouseX = 0.0f, float mouseY = 0.0f);
+void resetZoom(UIState& uiState);
+void applyZoomToProjection(const UIState& uiState, int windowWidth, int windowHeight);
+void worldToScreen(float worldX, float worldY, float& screenX, float& screenY, const UIState& uiState, int windowWidth, int windowHeight);
+void screenToWorld(float screenX, float screenY, float& worldX, float& worldY, const UIState& uiState, int windowWidth, int windowHeight);
+
+// Camera panning functions
+void startPanning(UIState& uiState, float mouseX, float mouseY);
+void updatePanning(UIState& uiState, float mouseX, float mouseY, int windowWidth, int windowHeight);
+void stopPanning(UIState& uiState);
+
+// Crosshair display
+void drawCrosshair(const UIState& uiState);
 
 #endif // UI_H

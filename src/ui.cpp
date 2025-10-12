@@ -106,18 +106,22 @@ void drawInfo(const std::vector<Body>& bodies, const UIState& uiState) {
         drawText("SELECTED", textLeftMargin + 0.4f, 0.7f - uiState.selectedBody * 0.18f, textSize * 0.6f);
     }
     
+    // Zoom info
+    glColor3f(0.7f, 0.9f, 0.7f);  // Light green
+    std::string zoomInfo = "Zoom: " + floatToString(uiState.zoomLevel, 2) + "x";
+    drawText(zoomInfo, textLeftMargin, -0.45f, textSize);
+    
     // Controls info
     glColor3f(0.7f, 0.7f, 0.9f);
     drawText("Controls", textLeftMargin, -0.55f, textSize);
     
     glColor3f(0.8f, 0.8f, 0.8f);
     drawText("Mouse: Drag bodies", textLeftMargin, -0.6f, getResponsiveTextSize(INFO_TEXT_SIZE));
-    drawText("Space: Pause", textLeftMargin, -0.65f, getResponsiveTextSize(INFO_TEXT_SIZE));
-    drawText("V: Edit velocity", textLeftMargin, -0.65f, getResponsiveTextSize(INFO_TEXT_SIZE));
-    drawText("M: Edit mass", textLeftMargin, -0.7f, getResponsiveTextSize(INFO_TEXT_SIZE));
-    drawText("D/Del: Delete body", textLeftMargin, -0.75f, getResponsiveTextSize(INFO_TEXT_SIZE));
-    drawText("T: Toggle trails", textLeftMargin, -0.8f, getResponsiveTextSize(INFO_TEXT_SIZE));
-    drawText("B: Wall bounce", textLeftMargin, -0.85f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("Wheel: Zoom", textLeftMargin, -0.65f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("Space: Pause", textLeftMargin, -0.7f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("V: Edit velocity", textLeftMargin, -0.75f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("M: Edit mass", textLeftMargin, -0.8f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("T: Toggle trails", textLeftMargin, -0.85f, getResponsiveTextSize(INFO_TEXT_SIZE));
     drawText("C: Switch coords", textLeftMargin, -0.9f, getResponsiveTextSize(INFO_TEXT_SIZE));
     drawText("R: Reset", textLeftMargin, -0.95f, getResponsiveTextSize(INFO_TEXT_SIZE));
     
@@ -1229,4 +1233,336 @@ void clearTrails(OrbitTrails& trails) {
         trail.clear();
     }
     trails.currentIndex = 0;
+}
+
+// Zoom functions implementation
+void updateZoom(UIState& uiState, float deltaZoom, float mouseX, float mouseY) {
+    float oldZoom = uiState.zoomLevel;
+    
+    // Apply zoom change
+    uiState.zoomLevel += deltaZoom;
+    
+    // Clamp zoom level to limits
+    if (uiState.zoomLevel < uiState.minZoom) {
+        uiState.zoomLevel = uiState.minZoom;
+    }
+    if (uiState.zoomLevel > uiState.maxZoom) {
+        uiState.zoomLevel = uiState.maxZoom;
+    }
+    
+    // If zoom level didn't actually change, return early
+    if (uiState.zoomLevel == oldZoom) {
+        return;
+    }
+    
+    // Update zoom center based on mouse position
+    // If mouse coordinates are provided (non-zero), zoom towards mouse position
+    if (mouseX != 0.0f || mouseY != 0.0f) {
+        // Convert mouse position to world coordinates before zoom
+        float worldX, worldY;
+        screenToWorld(mouseX, mouseY, worldX, worldY, uiState, g_uiWindowWidth, g_uiWindowHeight);
+        
+        // Adjust zoom center to zoom towards the mouse position
+        float zoomRatio = uiState.zoomLevel / oldZoom;
+        uiState.zoomCenterX = worldX - (worldX - uiState.zoomCenterX) / zoomRatio;
+        uiState.zoomCenterY = worldY - (worldY - uiState.zoomCenterY) / zoomRatio;
+    }
+    
+    std::cout << "Zoom level: " << std::fixed << std::setprecision(2) << uiState.zoomLevel 
+              << " (Center: " << uiState.zoomCenterX << ", " << uiState.zoomCenterY << ")" << std::endl;
+}
+
+void resetZoom(UIState& uiState) {
+    uiState.zoomLevel = 1.0f;
+    uiState.zoomCenterX = 0.0f;
+    uiState.zoomCenterY = 0.0f;
+    std::cout << "Zoom reset to default" << std::endl;
+}
+
+void applyZoomToProjection(const UIState& uiState, int windowWidth, int windowHeight) {
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    
+    float aspect = (float)windowWidth / (float)windowHeight;
+    
+    // Calculate the view bounds based on zoom level and center
+    float baseWidth, baseHeight;
+    if (aspect > 1.0f) {
+        baseWidth = aspect / uiState.zoomLevel;
+        baseHeight = 1.0f / uiState.zoomLevel;
+    } else {
+        baseWidth = 1.0f / uiState.zoomLevel;
+        baseHeight = (1.0f / aspect) / uiState.zoomLevel;
+    }
+    
+    // Apply zoom center offset
+    float left = -baseWidth + uiState.zoomCenterX;
+    float right = baseWidth + uiState.zoomCenterX;
+    float bottom = -baseHeight + uiState.zoomCenterY;
+    float top = baseHeight + uiState.zoomCenterY;
+    
+    glOrtho(left, right, bottom, top, -1.0f, 1.0f);
+    
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+}
+
+void worldToScreen(float worldX, float worldY, float& screenX, float& screenY, 
+                   const UIState& uiState, int windowWidth, int windowHeight) {
+    float aspect = (float)windowWidth / (float)windowHeight;
+    
+    // Calculate view bounds
+    float baseWidth, baseHeight;
+    if (aspect > 1.0f) {
+        baseWidth = aspect / uiState.zoomLevel;
+        baseHeight = 1.0f / uiState.zoomLevel;
+    } else {
+        baseWidth = 1.0f / uiState.zoomLevel;
+        baseHeight = (1.0f / aspect) / uiState.zoomLevel;
+    }
+    
+    float left = -baseWidth + uiState.zoomCenterX;
+    float right = baseWidth + uiState.zoomCenterX;
+    float bottom = -baseHeight + uiState.zoomCenterY;
+    float top = baseHeight + uiState.zoomCenterY;
+    
+    // Convert world to normalized device coordinates
+    float ndcX = (worldX - left) / (right - left) * 2.0f - 1.0f;
+    float ndcY = (worldY - bottom) / (top - bottom) * 2.0f - 1.0f;
+    
+    // Convert to screen coordinates
+    screenX = (ndcX + 1.0f) * 0.5f * windowWidth;
+    screenY = (1.0f - ndcY) * 0.5f * windowHeight;
+}
+
+void screenToWorld(float screenX, float screenY, float& worldX, float& worldY, 
+                   const UIState& uiState, int windowWidth, int windowHeight) {
+    float aspect = (float)windowWidth / (float)windowHeight;
+    
+    // Calculate view bounds
+    float baseWidth, baseHeight;
+    if (aspect > 1.0f) {
+        baseWidth = aspect / uiState.zoomLevel;
+        baseHeight = 1.0f / uiState.zoomLevel;
+    } else {
+        baseWidth = 1.0f / uiState.zoomLevel;
+        baseHeight = (1.0f / aspect) / uiState.zoomLevel;
+    }
+    
+    float left = -baseWidth + uiState.zoomCenterX;
+    float right = baseWidth + uiState.zoomCenterX;
+    float bottom = -baseHeight + uiState.zoomCenterY;
+    float top = baseHeight + uiState.zoomCenterY;
+    
+    // Convert screen to normalized device coordinates
+    float ndcX = (screenX / windowWidth) * 2.0f - 1.0f;
+    float ndcY = 1.0f - (screenY / windowHeight) * 2.0f;
+    
+    // Convert to world coordinates
+    worldX = left + (ndcX + 1.0f) * 0.5f * (right - left);
+    worldY = bottom + (ndcY + 1.0f) * 0.5f * (top - bottom);
+}
+
+// Camera panning functions implementation
+void startPanning(UIState& uiState, float mouseX, float mouseY) {
+    uiState.panning = true;
+    uiState.panStartX = mouseX;
+    uiState.panStartY = mouseY;
+    uiState.panStartCenterX = uiState.zoomCenterX;
+    uiState.panStartCenterY = uiState.zoomCenterY;
+    std::cout << "Started panning at (" << mouseX << ", " << mouseY << ")" << std::endl;
+}
+
+void updatePanning(UIState& uiState, float mouseX, float mouseY, int windowWidth, int windowHeight) {
+    if (!uiState.panning) return;
+    
+    float aspect = (float)windowWidth / (float)windowHeight;
+    
+    // Calculate how much the mouse moved in screen coordinates
+    float deltaScreenX = mouseX - uiState.panStartX;
+    float deltaScreenY = mouseY - uiState.panStartY;
+    
+    // Convert screen delta to world delta
+    float baseWidth, baseHeight;
+    if (aspect > 1.0f) {
+        baseWidth = aspect / uiState.zoomLevel;
+        baseHeight = 1.0f / uiState.zoomLevel;
+    } else {
+        baseWidth = 1.0f / uiState.zoomLevel;
+        baseHeight = (1.0f / aspect) / uiState.zoomLevel;
+    }
+    
+    // Convert screen movement to world movement
+    float deltaWorldX = -(deltaScreenX / windowWidth) * 2.0f * baseWidth;
+    float deltaWorldY = (deltaScreenY / windowHeight) * 2.0f * baseHeight;
+    
+    // Update zoom center to pan the view
+    uiState.zoomCenterX = uiState.panStartCenterX + deltaWorldX;
+    uiState.zoomCenterY = uiState.panStartCenterY + deltaWorldY;
+}
+
+void stopPanning(UIState& uiState) {
+    uiState.panning = false;
+    std::cout << "Stopped panning" << std::endl;
+}
+
+// Crosshair display function
+void drawCrosshair(const UIState& uiState) {
+    if (!uiState.showCrosshair) return;
+    
+    glColor3f(0.8f, 0.8f, 0.8f);  // Light gray color
+    glLineWidth(1.0f);
+    
+    // Draw horizontal line
+    glBegin(GL_LINES);
+    glVertex2f(-0.03f, 0.0f);  // Left side of crosshair
+    glVertex2f(0.03f, 0.0f);   // Right side of crosshair
+    glEnd();
+    
+    // Draw vertical line  
+    glBegin(GL_LINES);
+    glVertex2f(0.0f, -0.03f);  // Bottom of crosshair
+    glVertex2f(0.0f, 0.03f);   // Top of crosshair
+    glEnd();
+    
+    // Draw small circle at center
+    glPointSize(3.0f);
+    glBegin(GL_POINTS);
+    glVertex2f(0.0f, 0.0f);
+    glEnd();
+    glPointSize(1.0f);  // Reset point size
+}
+
+// Screen-fixed UI functions (not affected by zoom/pan)
+void setupScreenFixedProjection(int windowWidth, int windowHeight) {
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    
+    // Set up standard orthographic projection for screen-fixed UI
+    float aspect = (float)windowWidth / (float)windowHeight;
+    if (aspect > 1.0f) {
+        glOrtho(-aspect, aspect, -1.0f, 1.0f, -1.0f, 1.0f);
+    } else {
+        glOrtho(-1.0f, 1.0f, -1.0f/aspect, 1.0f/aspect, -1.0f, 1.0f);
+    }
+    
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+}
+
+void restoreWorldProjection(const UIState& uiState, int windowWidth, int windowHeight) {
+    applyZoomToProjection(uiState, windowWidth, windowHeight);
+}
+
+void drawInfoFixed(const std::vector<Body>& bodies, const UIState& uiState, int windowWidth, int windowHeight) {
+    if (!uiState.showInfo) return;
+    
+    // Save current projection matrix
+    GLfloat projMatrix[16];
+    glGetFloatv(GL_PROJECTION_MATRIX, projMatrix);
+    
+    // Set up screen-fixed projection
+    setupScreenFixedProjection(windowWidth, windowHeight);
+    
+    // Fixed panel position - always stick to the left edge
+    float aspectRatio = (float)windowWidth / (float)windowHeight;
+    float panelLeft = -aspectRatio + 0.02f;  // Always start from screen left edge + small margin
+    float panelWidth = 0.6f;  // Fixed width in normalized coordinates
+    float panelRight = panelLeft + panelWidth;
+    
+    // Semi-transparent background panel
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
+    glBegin(GL_QUADS);
+    glVertex2f(panelLeft, 0.95f); glVertex2f(panelRight, 0.95f);
+    glVertex2f(panelRight, -0.95f); glVertex2f(panelLeft, -0.95f);
+    glEnd();
+    glDisable(GL_BLEND);
+    
+    glColor3f(1.0f, 1.0f, 1.0f);
+    float textSize = getResponsiveTextSize(BASE_TEXT_SIZE);
+    float textLeftMargin = panelLeft + 0.03f;  // Text margin from panel left
+    
+    // Title
+    drawText("3-Body Simulation", textLeftMargin, 0.9f, getResponsiveTextSize(TITLE_TEXT_SIZE));
+    
+    // Body information
+    for (size_t i = 0; i < bodies.size(); i++) {
+        float yPos = 0.7f - i * 0.18f;
+        
+        // Body color for identification
+        glColor3f(bodies[i].r, bodies[i].g, bodies[i].b);
+        
+        // Body number
+        std::string bodyNum = "Body " + std::to_string(i + 1);
+        drawText(bodyNum, textLeftMargin, yPos, textSize);
+        
+        glColor3f(0.9f, 0.9f, 0.9f);  // Light gray
+        
+        // Position info
+        std::string posInfo = "Pos: " + floatToString(bodies[i].x, 2) + ", " + floatToString(bodies[i].y, 2);
+        drawText(posInfo, textLeftMargin, yPos - 0.035f, getResponsiveTextSize(INFO_TEXT_SIZE));
+        
+        // Velocity info
+        std::string velInfo = "Vel: " + floatToString(bodies[i].vx, 2) + ", " + floatToString(bodies[i].vy, 2);
+        drawText(velInfo, textLeftMargin, yPos - 0.065f, getResponsiveTextSize(INFO_TEXT_SIZE));
+        
+        // Mass and speed
+        float speed = sqrt(bodies[i].vx * bodies[i].vx + bodies[i].vy * bodies[i].vy);
+        std::string statsInfo = "Mass: " + floatToString(bodies[i].mass, 0) + " Speed: " + floatToString(speed, 3);
+        drawText(statsInfo, textLeftMargin, yPos - 0.095f, getResponsiveTextSize(INFO_TEXT_SIZE));
+        
+        // Separator line
+        glColor3f(0.3f, 0.3f, 0.3f);
+        glBegin(GL_LINES);
+        glVertex2f(textLeftMargin, yPos - 0.13f);
+        glVertex2f(panelRight - 0.05f, yPos - 0.13f);
+        glEnd();
+    }
+    
+    // Selected body indicator
+    if (uiState.selectedBody != -1) {
+        glColor3f(1.0f, 1.0f, 0.0f);  // Yellow
+        drawText("SELECTED", textLeftMargin + 0.4f, 0.7f - uiState.selectedBody * 0.18f, textSize * 0.6f);
+    }
+    
+    // Controls info
+    glColor3f(0.7f, 0.7f, 0.9f);
+    drawText("Controls", textLeftMargin, -0.55f, textSize);
+    
+    glColor3f(0.8f, 0.8f, 0.8f);
+    drawText("Left Click: Move bodies", textLeftMargin, -0.6f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("Right Click: Pan view", textLeftMargin, -0.65f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("Wheel: Zoom", textLeftMargin, -0.7f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("Space: Pause", textLeftMargin, -0.75f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("H: Toggle crosshair", textLeftMargin, -0.8f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("R: Reset", textLeftMargin, -0.85f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("ESC: Exit", textLeftMargin, -0.9f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    
+    // Restore original projection matrix
+    glMatrixMode(GL_PROJECTION);
+    glLoadMatrixf(projMatrix);
+    glMatrixMode(GL_MODELVIEW);
+}
+
+void drawCoordinateModeFixed(CoordinateMode mode, int windowWidth, int windowHeight) {
+    // Save current projection matrix
+    GLfloat projMatrix[16];
+    glGetFloatv(GL_PROJECTION_MATRIX, projMatrix);
+    
+    // Set up screen-fixed projection
+    setupScreenFixedProjection(windowWidth, windowHeight);
+    
+    float aspectRatio = (float)windowWidth / (float)windowHeight;
+    
+    // Position coordinate mode display at bottom right
+    glColor3f(0.8f, 0.8f, 0.8f);
+    std::string modeText = (mode == CoordinateMode::CARTESIAN) ? "Cartesian [x,y]" : "Polar [r,th]";
+    drawText(modeText, aspectRatio - 0.35f, -0.9f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    
+    // Restore original projection matrix
+    glMatrixMode(GL_PROJECTION);
+    glLoadMatrixf(projMatrix);
+    glMatrixMode(GL_MODELVIEW);
 }
