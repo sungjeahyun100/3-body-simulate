@@ -1,0 +1,57 @@
+# Docker Compose v2 형식
+name: threebody-simulation
+
+services:
+  base:
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+    image: threebody-base:latest
+    profiles:
+      - base
+    command: ["echo", "Base image built"]
+
+  sim:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: threebody-sim:latest
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /dev/dri:/dev/dri:rw
+    devices:
+      - /dev/dri
+    network_mode: host
+    stdin_open: true
+    tty: true
+    restart: "no"
+    privileged: true
+
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: threebody-sim:latest
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - /dev/dri:/dev/dri:rw
+      - .:/app
+      - build-cache:/app/build
+    devices:
+      - /dev/dri
+    network_mode: host
+    stdin_open: true
+    tty: true
+    privileged: true
+    working_dir: /app
+    command: bash
+    profiles:
+      - dev
+
+volumes:
+  build-cache:
+    driver: local
