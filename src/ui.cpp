@@ -1,0 +1,1232 @@
+#include "ui.h"
+#include "font.h"
+#include "physics.h"
+#include <GL/glew.h>
+#include <sstream>
+#include <iomanip>
+#include <cmath>
+#include <iostream>
+
+// Font size constants - adjust these to change text size globally
+const float BASE_TEXT_SIZE = 0.025f;
+const float TITLE_TEXT_SIZE = BASE_TEXT_SIZE * 1.2f;
+const float INFO_TEXT_SIZE = BASE_TEXT_SIZE * 0.7f;
+const float STATUS_TEXT_SIZE = BASE_TEXT_SIZE * 1.5f;
+
+// Window size globals
+static int g_uiWindowWidth = 1200;
+static int g_uiWindowHeight = 800;
+
+// Convert float to string with specified precision
+std::string floatToString(float value, int precision) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(precision) << value;
+    return oss.str();
+}
+
+// Convert radians to degrees string
+std::string angleToString(float radians) {
+    float degrees = radians * 180.0f / M_PI;
+    // Normalize to 0-360 range
+    while (degrees < 0) degrees += 360;
+    while (degrees >= 360) degrees -= 360;
+    return floatToString(degrees, 1) + "°";
+}
+
+// Convert degrees string to radians
+float stringToAngle(const std::string& degrees) {
+    float deg = std::stof(degrees);
+    return deg * M_PI / 180.0f;
+}
+
+// Main information display
+void drawInfo(const std::vector<Body>& bodies, const UIState& uiState) {
+    if (!uiState.showInfo) return;
+    
+    // Fixed panel position - always stick to the left edge
+    float aspectRatio = getAspectRatio();
+    float panelLeft = -aspectRatio + 0.02f;  // Always start from screen left edge + small margin
+    float panelWidth = 0.6f;  // Fixed width in normalized coordinates
+    float panelRight = panelLeft + panelWidth;
+    
+    // Semi-transparent background panel
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
+    glBegin(GL_QUADS);
+    glVertex2f(panelLeft, 0.95f); glVertex2f(panelRight, 0.95f);
+    glVertex2f(panelRight, -0.95f); glVertex2f(panelLeft, -0.95f);
+    glEnd();
+    glDisable(GL_BLEND);
+    
+    glColor3f(1.0f, 1.0f, 1.0f);
+    float textSize = getResponsiveTextSize(BASE_TEXT_SIZE);
+    float textLeftMargin = panelLeft + 0.03f;  // Text margin from panel left
+    
+    // Title
+    drawText("3-Body Simulation", textLeftMargin, 0.9f, getResponsiveTextSize(TITLE_TEXT_SIZE));
+    
+    // Body information
+    for (size_t i = 0; i < bodies.size(); i++) {
+        float yPos = 0.7f - i * 0.18f;
+        
+        // Body color for identification
+        glColor3f(bodies[i].r, bodies[i].g, bodies[i].b);
+        
+        // Body number
+        std::string bodyNum = "Body " + std::to_string(i + 1);
+        drawText(bodyNum, textLeftMargin, yPos, textSize);
+        
+        glColor3f(0.9f, 0.9f, 0.9f);  // Light gray
+        
+        // Position info
+        std::string posInfo = "Pos: " + floatToString(bodies[i].x, 2) + ", " + floatToString(bodies[i].y, 2);
+        drawText(posInfo, textLeftMargin, yPos - 0.035f, getResponsiveTextSize(INFO_TEXT_SIZE));
+        
+        // Velocity info
+        std::string velInfo = "Vel: " + floatToString(bodies[i].vx, 2) + ", " + floatToString(bodies[i].vy, 2);
+        drawText(velInfo, textLeftMargin, yPos - 0.065f, getResponsiveTextSize(INFO_TEXT_SIZE));
+        
+        // Mass and speed
+        float speed = sqrt(bodies[i].vx * bodies[i].vx + bodies[i].vy * bodies[i].vy);
+        std::string statsInfo = "Mass: " + floatToString(bodies[i].mass, 0) + " Speed: " + floatToString(speed, 3);
+        drawText(statsInfo, textLeftMargin, yPos - 0.095f, getResponsiveTextSize(INFO_TEXT_SIZE));
+        
+        // Separator line
+        glColor3f(0.3f, 0.3f, 0.3f);
+        glBegin(GL_LINES);
+        glVertex2f(textLeftMargin, yPos - 0.13f);
+        glVertex2f(panelRight - 0.05f, yPos - 0.13f);
+        glEnd();
+    }
+    
+    // Selected body indicator
+    if (uiState.selectedBody != -1) {
+        glColor3f(1.0f, 1.0f, 0.0f);  // Yellow
+        drawText("SELECTED", textLeftMargin + 0.4f, 0.7f - uiState.selectedBody * 0.18f, textSize * 0.6f);
+    }
+    
+    // Controls info
+    glColor3f(0.7f, 0.7f, 0.9f);
+    drawText("Controls", textLeftMargin, -0.55f, textSize);
+    
+    glColor3f(0.8f, 0.8f, 0.8f);
+    drawText("Mouse: Drag bodies", textLeftMargin, -0.6f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("Space: Pause", textLeftMargin, -0.65f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("V: Edit velocity", textLeftMargin, -0.65f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("M: Edit mass", textLeftMargin, -0.7f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("D/Del: Delete body", textLeftMargin, -0.75f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("T: Toggle trails", textLeftMargin, -0.8f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("B: Wall bounce", textLeftMargin, -0.85f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("C: Switch coords", textLeftMargin, -0.9f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    drawText("R: Reset", textLeftMargin, -0.95f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    
+    // Wall bounce coefficient display
+    glColor3f(0.9f, 0.7f, 0.4f);  // Orange color for physics info
+    float bounceCoeff = getBoundaryRestitution();
+    std::string bounceText = "Bounce: " + floatToString(bounceCoeff * 100, 0) + "%";
+    drawText(bounceText, textLeftMargin, -0.47f, getResponsiveTextSize(INFO_TEXT_SIZE));
+    
+    // Status display - 화면 오른쪽 위 위치 조정
+    if (uiState.paused) {
+        glColor3f(1.0f, 0.2f, 0.2f);  // Red
+        float statusX = (aspectRatio > 1.5f) ? 0.7f : 0.4f; // 종횡비에 따라 위치 조정
+        drawText("PAUSED", statusX, 0.95f, getResponsiveTextSize(STATUS_TEXT_SIZE));
+    }
+}
+
+// Draw direction arrow during dragging
+void drawDirectionArrow(const UIState& uiState) {
+    if (!uiState.draggingDirection) return;
+    
+    float startX = uiState.dragStartX;
+    float startY = uiState.dragStartY;
+    float endX = uiState.dragCurrentX;
+    float endY = uiState.dragCurrentY;
+    
+    // Calculate arrow vector
+    float dx = endX - startX;
+    float dy = endY - startY;
+    float length = sqrt(dx * dx + dy * dy);
+    
+    if (length < 0.01f) return; // Too small to draw
+    
+    // Normalize direction
+    float dirX = dx / length;
+    float dirY = dy / length;
+    
+    // Arrow head size
+    float headSize = 0.03f;
+    float headAngle = 0.5f; // radians
+    
+    // Arrow head points
+    float head1X = endX - headSize * (dirX * cos(headAngle) - dirY * sin(headAngle));
+    float head1Y = endY - headSize * (dirX * sin(headAngle) + dirY * cos(headAngle));
+    float head2X = endX - headSize * (dirX * cos(-headAngle) - dirY * sin(-headAngle));
+    float head2Y = endY - headSize * (dirX * sin(-headAngle) + dirY * cos(-headAngle));
+    
+    // Draw arrow shaft
+    glColor3f(1.0f, 1.0f, 0.0f); // Yellow arrow
+    glLineWidth(3.0f);
+    glBegin(GL_LINES);
+    glVertex2f(startX, startY);
+    glVertex2f(endX, endY);
+    glEnd();
+    
+    // Draw arrow head
+    glBegin(GL_TRIANGLES);
+    glVertex2f(endX, endY);
+    glVertex2f(head1X, head1Y);
+    glVertex2f(head2X, head2Y);
+    glEnd();
+    
+    // Draw starting point circle
+    glColor3f(0.0f, 1.0f, 0.0f); // Green start point
+    glBegin(GL_TRIANGLE_FAN);
+    float circleRadius = 0.01f;
+    glVertex2f(startX, startY);
+    for (int i = 0; i <= 16; i++) {
+        float angle = 2.0f * M_PI * i / 16;
+        glVertex2f(startX + circleRadius * cos(angle), startY + circleRadius * sin(angle));
+    }
+    glEnd();
+    
+    glLineWidth(1.0f); // Reset line width
+}
+
+// Draw current velocity vector for selected body
+void drawCurrentVelocityVector(const std::vector<Body>& bodies, const UIState& uiState) {
+    if (uiState.selectedBody == -1 || uiState.selectedBody >= bodies.size()) return;
+    
+    const Body& body = bodies[uiState.selectedBody];
+    
+    // Calculate velocity vector visualization
+    float scale = 0.3f; // Scale factor for visibility
+    float startX = body.x;
+    float startY = body.y;
+    float endX = startX + body.vx * scale;
+    float endY = startY + body.vy * scale;
+    
+    float dx = endX - startX;
+    float dy = endY - startY;
+    float length = sqrt(dx * dx + dy * dy);
+    
+    if (length < 0.005f) return; // Too small to draw
+    
+    // Normalize direction
+    float dirX = dx / length;
+    float dirY = dy / length;
+    
+    // Arrow head size
+    float headSize = 0.02f;
+    float headAngle = 0.5f;
+    
+    // Arrow head points
+    float head1X = endX - headSize * (dirX * cos(headAngle) - dirY * sin(headAngle));
+    float head1Y = endY - headSize * (dirX * sin(headAngle) + dirY * cos(headAngle));
+    float head2X = endX - headSize * (dirX * cos(-headAngle) - dirY * sin(-headAngle));
+    float head2Y = endY - headSize * (dirX * sin(-headAngle) + dirY * cos(-headAngle));
+    
+    // Draw velocity vector arrow - highlight if being dragged
+    if (uiState.draggingVelocityVector) {
+        glColor3f(1.0f, 1.0f, 0.0f); // Yellow when dragging
+        glLineWidth(4.0f);
+    } else {
+        glColor3f(0.0f, 1.0f, 1.0f); // Cyan for current velocity
+        glLineWidth(3.0f);
+    }
+    
+    glBegin(GL_LINES);
+    glVertex2f(startX, startY);
+    glVertex2f(endX, endY);
+    glEnd();
+    
+    // Draw arrow head
+    glBegin(GL_TRIANGLES);
+    glVertex2f(endX, endY);
+    glVertex2f(head1X, head1Y);
+    glVertex2f(head2X, head2Y);
+    glEnd();
+    
+    // Draw interaction handle at the end
+    glColor4f(1.0f, 1.0f, 1.0f, 0.8f);
+    glBegin(GL_TRIANGLE_FAN);
+    float handleRadius = 0.015f;
+    glVertex2f(endX, endY);
+    for (int i = 0; i <= 16; i++) {
+        float angle = 2.0f * M_PI * i / 16;
+        glVertex2f(endX + handleRadius * cos(angle), endY + handleRadius * sin(angle));
+    }
+    glEnd();
+    
+    glLineWidth(1.0f); // Reset line width
+}
+
+// Velocity editor interface
+void drawVelocityEditor(const std::vector<Body>& bodies, UIState& uiState) {
+    if (uiState.editMode != EditMode::VELOCITY || uiState.selectedBody == -1) return;
+    
+    // Responsive panel positioning
+    float aspectRatio = getAspectRatio();
+    float panelLeft = (aspectRatio > 1.5f) ? 0.15f : 0.1f;
+    float panelRight = (aspectRatio > 1.5f) ? 0.85f : 0.9f;
+    float panelTop = 0.5f;
+    float panelBottom = 0.05f;
+    
+    // Editor background
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.1f, 0.1f, 0.3f, 0.9f);
+    glBegin(GL_QUADS);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    glDisable(GL_BLEND);
+    
+    // Border
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    
+    glColor3f(1.0f, 1.0f, 1.0f);
+    float textSize = getResponsiveTextSizeSmall(BASE_TEXT_SIZE);
+    float textLeftMargin = panelLeft + 0.05f;
+    
+    // Title
+    drawText("Velocity Editor - Body " + std::to_string(uiState.selectedBody + 1), textLeftMargin, 0.45f, textSize);
+    
+    const Body& body = bodies[uiState.selectedBody];
+    
+    if (uiState.coordMode == CoordinateMode::CARTESIAN) {
+        // Cartesian mode
+        glColor3f(0.8f, 0.8f, 0.8f);
+        drawText("Current: X=" + floatToString(body.vx, 3) + " Y=" + floatToString(body.vy, 3), 
+                 textLeftMargin, 0.38f, getResponsiveTextSizeSmall(textSize * 0.8f));
+        
+        // X field - highlight if selected or in text input
+        bool xSelected = (uiState.currentEditField == 0);
+        bool xInputting = (uiState.textInputMode && uiState.inputFieldIndex == 0);
+        if (xSelected || xInputting) {
+            glColor3f(1.0f, 1.0f, 0.0f); // Yellow for selected
+        } else {
+            glColor3f(0.9f, 0.9f, 0.9f); // White for unselected
+        }
+        drawText("Edit X:", textLeftMargin, 0.30f, getResponsiveTextSizeSmall(textSize * 0.9f));
+        
+        // Show input buffer if typing, otherwise show current value
+        std::string xValue = (xInputting) ? uiState.inputBuffer + "|" : floatToString(uiState.editVelocityX, 3);
+        drawText(xValue, textLeftMargin + 0.27f, 0.30f, getResponsiveTextSizeSmall(textSize * 0.9f));
+        
+        // Y field - highlight if selected or in text input
+        bool ySelected = (uiState.currentEditField == 1);
+        bool yInputting = (uiState.textInputMode && uiState.inputFieldIndex == 1);
+        if (ySelected || yInputting) {
+            glColor3f(1.0f, 1.0f, 0.0f); // Yellow for selected
+        } else {
+            glColor3f(0.9f, 0.9f, 0.9f); // White for unselected
+        }
+        drawText("Edit Y:", textLeftMargin, 0.25f, getResponsiveTextSizeSmall(textSize * 0.9f));
+        
+        std::string yValue = (yInputting) ? uiState.inputBuffer + "|" : floatToString(uiState.editVelocityY, 3);
+        drawText(yValue, textLeftMargin + 0.27f, 0.25f, getResponsiveTextSizeSmall(textSize * 0.9f));
+    } else {
+        // Polar mode
+        CartesianCoord vel = {body.vx, body.vy};
+        PolarCoord current = cartesianToPolar(vel);
+        
+        glColor3f(0.8f, 0.8f, 0.8f);
+        drawText("Current: R=" + floatToString(current.r, 3) + " th=" + angleToString(current.theta), 
+                 textLeftMargin, 0.38f, getResponsiveTextSize(textSize * 0.8f));
+        
+        // R field - highlight if selected or in text input
+        bool rSelected = (uiState.currentEditField == 0);
+        bool rInputting = (uiState.textInputMode && uiState.inputFieldIndex == 0);
+        if (rSelected || rInputting) {
+            glColor3f(1.0f, 1.0f, 0.0f); // Yellow for selected
+        } else {
+            glColor3f(0.9f, 0.9f, 0.9f); // White for unselected
+        }
+        drawText("Edit R:", textLeftMargin, 0.30f, getResponsiveTextSize(textSize * 0.9f));
+        
+        std::string rValue = (rInputting) ? uiState.inputBuffer + "|" : floatToString(uiState.editVelocityR, 3);
+        drawText(rValue, textLeftMargin + 0.27f, 0.30f, getResponsiveTextSize(textSize * 0.9f));
+        
+        // θ field - highlight if selected or in text input
+        bool thetaSelected = (uiState.currentEditField == 1);
+        bool thetaInputting = (uiState.textInputMode && uiState.inputFieldIndex == 1);
+        if (thetaSelected || thetaInputting) {
+            glColor3f(1.0f, 1.0f, 0.0f); // Yellow for selected
+        } else {
+            glColor3f(0.9f, 0.9f, 0.9f); // White for unselected
+        }
+        drawText("Edit th:", textLeftMargin, 0.25f, getResponsiveTextSize(textSize * 0.9f));
+        
+        std::string thetaValue = (thetaInputting) ? uiState.inputBuffer + "|°" : floatToString(uiState.editVelocityTheta, 1) + "°";
+        drawText(thetaValue, textLeftMargin + 0.27f, 0.25f, getResponsiveTextSize(textSize * 0.9f));
+    }
+    
+    // Instructions
+    glColor3f(0.7f, 0.7f, 0.9f);
+    drawText("Keys: Type numbers, TAB to switch field", textLeftMargin, 0.15f, getResponsiveTextSize(textSize * 0.7f));
+    drawText("Mouse: Drag to set direction", textLeftMargin, 0.11f, getResponsiveTextSize(textSize * 0.7f));
+    drawText("Enter: Apply, Esc: Cancel", textLeftMargin, 0.07f, getResponsiveTextSize(textSize * 0.7f));
+    
+    // Draw direction arrow if dragging
+    drawDirectionArrow(uiState);
+}
+
+// Mass editor interface
+void drawMassEditor(const std::vector<Body>& bodies, UIState& uiState) {
+    if (uiState.editMode != EditMode::MASS || uiState.selectedBody == -1) return;
+    
+    // Responsive panel positioning
+    float aspectRatio = getAspectRatio();
+    float panelLeft = (aspectRatio > 1.5f) ? 0.15f : 0.1f;
+    float panelRight = (aspectRatio > 1.5f) ? 0.85f : 0.9f;
+    float panelTop = 0.5f;
+    float panelBottom = 0.05f;
+    
+    // Editor background
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.3f, 0.1f, 0.1f, 0.9f); // Reddish background for mass
+    glBegin(GL_QUADS);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    glDisable(GL_BLEND);
+    
+    // Border
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    
+    glColor3f(1.0f, 1.0f, 1.0f);
+    float textSize = getResponsiveTextSizeSmall(BASE_TEXT_SIZE);
+    float textLeftMargin = panelLeft + 0.05f;
+    
+    // Title
+    drawText("Mass Editor - Body " + std::to_string(uiState.selectedBody + 1), textLeftMargin, 0.45f, textSize);
+    
+    const Body& body = bodies[uiState.selectedBody];
+    
+    // Current mass
+    glColor3f(0.8f, 0.8f, 0.8f);
+    drawText("Current Mass: " + floatToString(body.mass, 0) + " kg", textLeftMargin, 0.38f, getResponsiveTextSizeSmall(textSize * 0.8f));
+    
+    // Edit mass
+    bool massInputting = (uiState.textInputMode && uiState.inputFieldIndex == 2);
+    glColor3f(1.0f, 1.0f, 0.0f); // Always yellow since there's only one field
+    drawText("Edit Mass:", textLeftMargin, 0.30f, getResponsiveTextSizeSmall(textSize * 0.9f));
+    
+    // Show input buffer if typing, otherwise show current value
+    std::string massValue = (massInputting) ? uiState.inputBuffer + "| kg" : floatToString(uiState.editMass, 0) + " kg";
+    drawText(massValue, textLeftMargin + 0.30f, 0.30f, getResponsiveTextSizeSmall(textSize * 0.9f));
+    
+    // Instructions
+    glColor3f(0.9f, 0.7f, 0.7f);
+    drawText("Keys: Type numbers to edit mass", textLeftMargin, 0.20f, getResponsiveTextSizeSmall(textSize * 0.7f));
+    drawText("Enter: Apply, Esc: Cancel", textLeftMargin, 0.16f, getResponsiveTextSizeSmall(textSize * 0.7f));
+}
+
+// Draw coordinate system mode indicator
+void drawCoordinateMode(CoordinateMode mode) {
+    glColor3f(0.8f, 0.9f, 1.0f);
+    float textSize = getResponsiveTextSize(BASE_TEXT_SIZE);
+    
+    // 화면 크기에 따라 위치 조정
+    float aspectRatio = getAspectRatio();
+    float coordX = (aspectRatio > 1.5f) ? 0.7f : 0.4f;
+    
+    std::string modeText = (mode == CoordinateMode::CARTESIAN) ? "Cartesian [X,Y]" : "Polar [R,th]";
+    drawText("Coord: " + modeText, coordX, 0.8f, textSize);
+    
+    glColor3f(0.6f, 0.6f, 0.8f);
+    drawText("Press [C] to switch", coordX, 0.76f, getResponsiveTextSize(textSize * 0.8f));
+}
+
+// Handle velocity editing initialization
+void handleVelocityEdit(std::vector<Body>& bodies, UIState& uiState) {
+    if (uiState.selectedBody == -1 || uiState.selectedBody >= bodies.size()) return;
+    
+    Body& body = bodies[uiState.selectedBody];
+    
+    // Set current values based on coordinate mode
+    if (uiState.coordMode == CoordinateMode::CARTESIAN) {
+        uiState.editVelocityX = body.vx;
+        uiState.editVelocityY = body.vy;
+    } else {
+        // Convert to polar
+        CartesianCoord vel = {body.vx, body.vy};
+        PolarCoord polar = cartesianToPolar(vel);
+        uiState.editVelocityR = polar.r;
+        uiState.editVelocityTheta = polar.theta * 180.0f / M_PI; // Convert to degrees
+    }
+}
+
+// Handle mass editing initialization
+void handleMassEdit(std::vector<Body>& bodies, UIState& uiState) {
+    if (uiState.selectedBody == -1 || uiState.selectedBody >= bodies.size()) return;
+    
+    Body& body = bodies[uiState.selectedBody];
+    uiState.editMass = body.mass;
+}
+
+// Apply velocity edit to selected body
+void applyVelocityEdit(std::vector<Body>& bodies, const UIState& uiState) {
+    if (uiState.editMode != EditMode::VELOCITY || uiState.selectedBody == -1) return;
+    
+    Body& body = bodies[uiState.selectedBody];
+    
+    if (uiState.coordMode == CoordinateMode::CARTESIAN) {
+        body.vx = uiState.editVelocityX;
+        body.vy = uiState.editVelocityY;
+    } else {
+        PolarCoord polar = {uiState.editVelocityR, uiState.editVelocityTheta * M_PI / 180.0f};
+        CartesianCoord vel = polarToCartesian(polar);
+        body.vx = vel.x;
+        body.vy = vel.y;
+    }
+}
+
+// Apply mass edit to selected body
+void applyMassEdit(std::vector<Body>& bodies, const UIState& uiState) {
+    if (uiState.editMode != EditMode::MASS || uiState.selectedBody == -1) return;
+    
+    Body& body = bodies[uiState.selectedBody];
+    body.mass = uiState.editMass;
+}
+
+// Cancel any editing
+void cancelEdit(UIState& uiState) {
+    if (uiState.editMode == EditMode::DELETE_CONFIRM) {
+        cancelDeleteConfirm(uiState);
+        return;
+    }
+    
+    uiState.editMode = EditMode::NONE;
+    uiState.editVelocityX = 0.0f;
+    uiState.editVelocityY = 0.0f;
+    uiState.editVelocityR = 0.0f;
+    uiState.editVelocityTheta = 0.0f;
+    uiState.editMass = 1000.0f;
+    uiState.currentEditField = 0;
+    uiState.textInputMode = false;
+    uiState.inputBuffer = "";
+    uiState.draggingDirection = false;
+}
+
+// Text input handling
+void startTextInput(UIState& uiState, int fieldIndex) {
+    uiState.textInputMode = true;
+    uiState.inputFieldIndex = fieldIndex;
+    uiState.inputBuffer = "";
+    
+    // Pre-fill with current value
+    if (fieldIndex == 2) { // Mass
+        uiState.inputBuffer = floatToString(uiState.editMass, 0);
+    } else if (uiState.editMode == EditMode::VELOCITY) {
+        if (uiState.coordMode == CoordinateMode::CARTESIAN) {
+            if (fieldIndex == 0) {
+                uiState.inputBuffer = floatToString(uiState.editVelocityX, 3);
+            } else {
+                uiState.inputBuffer = floatToString(uiState.editVelocityY, 3);
+            }
+        } else {
+            if (fieldIndex == 0) {
+                uiState.inputBuffer = floatToString(uiState.editVelocityR, 3);
+            } else {
+                uiState.inputBuffer = floatToString(uiState.editVelocityTheta, 1);
+            }
+        }
+    }
+}
+
+void handleTextInput(UIState& uiState, char character) {
+    if (!uiState.textInputMode) return;
+    
+    // 입력 제한 검사
+    if (character == '.' && uiState.inputBuffer.find('.') != std::string::npos) {
+        return; // 이미 소수점이 있음
+    }
+    if (character == '-' && !uiState.inputBuffer.empty()) {
+        return; // 마이너스는 맨 처음에만
+    }
+    
+    uiState.inputBuffer += character;
+    
+    // 즉시 값 적용 - 유효한 숫자인지 확인 후 적용
+    applyTextInputImmediate(uiState);
+}
+
+void handleBackspace(UIState& uiState) {
+    if (!uiState.textInputMode || uiState.inputBuffer.empty()) return;
+    uiState.inputBuffer.pop_back();
+    
+    // 백스페이스 후에도 즉시 값 적용
+    applyTextInputImmediate(uiState);
+}
+
+void applyTextInput(UIState& uiState) {
+    if (!uiState.textInputMode || uiState.inputBuffer.empty()) return;
+    
+    try {
+        float value = std::stof(uiState.inputBuffer);
+        
+        if (uiState.inputFieldIndex == 2) { // Mass
+            uiState.editMass = std::max(1.0f, value);
+        } else if (uiState.editMode == EditMode::VELOCITY) {
+            if (uiState.coordMode == CoordinateMode::CARTESIAN) {
+                if (uiState.inputFieldIndex == 0) {
+                    uiState.editVelocityX = value;
+                } else {
+                    uiState.editVelocityY = value;
+                }
+            } else {
+                if (uiState.inputFieldIndex == 0) {
+                    uiState.editVelocityR = std::max(0.0f, value);
+                } else {
+                    uiState.editVelocityTheta = value;
+                    // 각도를 0-360 범위로 정규화
+                    while (uiState.editVelocityTheta < 0) uiState.editVelocityTheta += 360;
+                    while (uiState.editVelocityTheta >= 360) uiState.editVelocityTheta -= 360;
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        // 잘못된 입력은 무시
+    }
+    
+    uiState.textInputMode = false;
+    uiState.inputBuffer = "";
+}
+
+void applyTextInputImmediate(UIState& uiState) {
+    if (!uiState.textInputMode || uiState.inputBuffer.empty()) return;
+    
+    try {
+        float value = std::stof(uiState.inputBuffer);
+        
+        if (uiState.editMode == EditMode::ADD_BODY) {
+            if (uiState.inputFieldIndex == 2) { // Mass
+                uiState.newBodyMass = std::max(1.0f, value);
+            } else {
+                if (uiState.coordMode == CoordinateMode::CARTESIAN) {
+                    if (uiState.inputFieldIndex == 0) {
+                        uiState.newBodyVx = value;
+                    } else {
+                        uiState.newBodyVy = value;
+                    }
+                } else {
+                    // Polar mode for new body
+                    if (uiState.inputFieldIndex == 0) {
+                        float theta = atan2(uiState.newBodyVy, uiState.newBodyVx);
+                        uiState.newBodyVx = value * cos(theta);
+                        uiState.newBodyVy = value * sin(theta);
+                    } else {
+                        float r = sqrt(uiState.newBodyVx * uiState.newBodyVx + uiState.newBodyVy * uiState.newBodyVy);
+                        float angle = value * M_PI / 180.0f; // Convert degrees to radians
+                        uiState.newBodyVx = r * cos(angle);
+                        uiState.newBodyVy = r * sin(angle);
+                    }
+                }
+            }
+        } else if (uiState.inputFieldIndex == 2) { // Mass for existing body
+            uiState.editMass = std::max(1.0f, value);
+        } else if (uiState.editMode == EditMode::VELOCITY) {
+            if (uiState.coordMode == CoordinateMode::CARTESIAN) {
+                if (uiState.inputFieldIndex == 0) {
+                    uiState.editVelocityX = value;
+                } else {
+                    uiState.editVelocityY = value;
+                }
+            } else {
+                if (uiState.inputFieldIndex == 0) {
+                    uiState.editVelocityR = std::max(0.0f, value);
+                } else {
+                    uiState.editVelocityTheta = value;
+                    // 각도를 0-360 범위로 정규화
+                    while (uiState.editVelocityTheta < 0) uiState.editVelocityTheta += 360;
+                    while (uiState.editVelocityTheta >= 360) uiState.editVelocityTheta -= 360;
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        // 잘못된 입력은 무시하고 계속 입력 모드 유지
+    }
+    
+    // 텍스트 입력 모드는 유지 (uiState.textInputMode = true 그대로)
+}
+
+void cancelTextInput(UIState& uiState) {
+    uiState.textInputMode = false;
+    uiState.inputBuffer = "";
+}
+
+// Direction dragging for velocity
+void startDirectionDrag(UIState& uiState, float x, float y) {
+    uiState.draggingDirection = true;
+    uiState.dragStartX = x;
+    uiState.dragStartY = y;
+    uiState.dragCurrentX = x;
+    uiState.dragCurrentY = y;
+}
+
+void updateDirectionDrag(UIState& uiState, float x, float y) {
+    if (!uiState.draggingDirection) return;
+    uiState.dragCurrentX = x;
+    uiState.dragCurrentY = y;
+}
+
+void applyDirectionDrag(UIState& uiState) {
+    if (!uiState.draggingDirection) return;
+    
+    float dx = uiState.dragCurrentX - uiState.dragStartX;
+    float dy = uiState.dragCurrentY - uiState.dragStartY;
+    
+    if (uiState.coordMode == CoordinateMode::CARTESIAN) {
+        // 드래그 벡터를 속도로 사용 (스케일링)
+        float scale = 2.0f; // 드래그 감도 조정
+        uiState.editVelocityX = dx * scale;
+        uiState.editVelocityY = dy * scale;
+    } else {
+        // 극좌표 모드: 거리는 크기, 각도는 방향
+        float magnitude = sqrt(dx * dx + dy * dy) * 2.0f; // 스케일링
+        float angle = atan2(dy, dx) * 180.0f / M_PI; // 라디안을 도로 변환
+        
+        // 각도를 0-360 범위로 정규화
+        while (angle < 0) angle += 360;
+        while (angle >= 360) angle -= 360;
+        
+        uiState.editVelocityR = magnitude;
+        uiState.editVelocityTheta = angle;
+    }
+    
+    uiState.draggingDirection = false;
+}
+
+// Direct velocity vector manipulation functions
+bool isPointOnVelocityVector(const std::vector<Body>& bodies, const UIState& uiState, float x, float y) {
+    if (uiState.selectedBody == -1 || uiState.selectedBody >= bodies.size()) return false;
+    
+    const Body& body = bodies[uiState.selectedBody];
+    
+    // Calculate velocity vector visualization
+    float scale = uiState.velocityVectorScale;
+    float startX = body.x;
+    float startY = body.y;
+    float endX = startX + body.vx * scale;
+    float endY = startY + body.vy * scale;
+    
+    float dx = endX - startX;
+    float dy = endY - startY;
+    float length = sqrt(dx * dx + dy * dy);
+    
+    if (length < 0.005f) return false; // Too small to interact with
+    
+    // Check if point is near the velocity vector line or arrow head
+    float tolerance = 0.03f; // Click tolerance
+    
+    // Distance from point to line segment
+    float A = y - startY;
+    float B = startX - x;
+    float C = (x - startX) * (endY - startY) - (y - startY) * (endX - startX);
+    
+    float distance = abs(C) / length;
+    
+    // Check if the point is within the line segment bounds
+    float dotProduct = (x - startX) * (endX - startX) + (y - startY) * (endY - startY);
+    float squaredLength = length * length;
+    
+    if (dotProduct >= 0 && dotProduct <= squaredLength) {
+        return distance <= tolerance;
+    }
+    
+    // Also check if clicking near the arrow head
+    float headDistance = sqrt((x - endX) * (x - endX) + (y - endY) * (y - endY));
+    return headDistance <= tolerance;
+}
+
+void startVelocityVectorDrag(UIState& uiState, float x, float y) {
+    uiState.draggingVelocityVector = true;
+    uiState.dragStartX = x;
+    uiState.dragStartY = y;
+}
+
+void updateVelocityVectorDrag(std::vector<Body>& bodies, UIState& uiState, float x, float y) {
+    if (!uiState.draggingVelocityVector || uiState.selectedBody == -1) return;
+    
+    Body& body = bodies[uiState.selectedBody];
+    
+    // Calculate new velocity based on drag position relative to body
+    float dx = x - body.x;
+    float dy = y - body.y;
+    
+    // Apply inverse scale to convert screen space back to velocity space
+    float scale = uiState.velocityVectorScale;
+    body.vx = dx / scale;
+    body.vy = dy / scale;
+}
+
+void finishVelocityVectorDrag(UIState& uiState) {
+    uiState.draggingVelocityVector = false;
+}
+
+// Add body functions
+void drawAddBodyEditor(UIState& uiState) {
+    if (uiState.editMode != EditMode::ADD_BODY) return;
+    
+    // Responsive panel positioning
+    float aspectRatio = getAspectRatio();
+    float panelLeft = (aspectRatio > 1.5f) ? 0.05f : 0.05f;
+    float panelRight = (aspectRatio > 1.5f) ? 0.95f : 0.95f;
+    float panelTop = 0.6f;
+    float panelBottom = 0.05f;
+    
+    // Editor background
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.1f, 0.3f, 0.1f, 0.9f); // Greenish background for add body
+    glBegin(GL_QUADS);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    glDisable(GL_BLEND);
+    
+    // Border
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    
+    glColor3f(1.0f, 1.0f, 1.0f);
+    float textSize = getResponsiveTextSize(BASE_TEXT_SIZE);
+    float textLeftMargin = panelLeft + 0.05f;
+    
+    // Title
+    drawText("Add New Body", textLeftMargin, 0.55f, textSize);
+    
+    // Position info
+    glColor3f(0.8f, 0.8f, 0.8f);
+    drawText("Position: " + floatToString(uiState.newBodyX, 3) + ", " + floatToString(uiState.newBodyY, 3), 
+             textLeftMargin, 0.48f, getResponsiveTextSize(textSize * 0.8f));
+    
+    if (uiState.coordMode == CoordinateMode::CARTESIAN) {
+        // Cartesian velocity input
+        
+        // Vx field
+        bool vxInputting = (uiState.textInputMode && uiState.inputFieldIndex == 0);
+        if (vxInputting) {
+            glColor3f(1.0f, 1.0f, 0.0f); // Yellow for selected
+        } else {
+            glColor3f(0.9f, 0.9f, 0.9f); // White for unselected
+        }
+        drawText("Velocity X:", textLeftMargin, 0.40f, getResponsiveTextSize(textSize * 0.9f));
+        
+        std::string vxValue = (vxInputting) ? uiState.inputBuffer + "|" : floatToString(uiState.newBodyVx, 3);
+        drawText(vxValue, textLeftMargin + 0.37f, 0.40f, getResponsiveTextSize(textSize * 0.9f));
+        
+        // Vy field
+        bool vyInputting = (uiState.textInputMode && uiState.inputFieldIndex == 1);
+        if (vyInputting) {
+            glColor3f(1.0f, 1.0f, 0.0f); // Yellow for selected
+        } else {
+            glColor3f(0.9f, 0.9f, 0.9f); // White for unselected
+        }
+        drawText("Velocity Y:", 0.15f, 0.35f, textSize * 0.9f);
+        
+        std::string vyValue = (vyInputting) ? uiState.inputBuffer + "|" : floatToString(uiState.newBodyVy, 3);
+        drawText(vyValue, 0.52f, 0.35f, textSize * 0.9f);
+    } else {
+        // Polar velocity input
+        float r = sqrt(uiState.newBodyVx * uiState.newBodyVx + uiState.newBodyVy * uiState.newBodyVy);
+        float theta = atan2(uiState.newBodyVy, uiState.newBodyVx) * 180.0f / M_PI;
+        while (theta < 0) theta += 360;
+        
+        // R field
+        bool rInputting = (uiState.textInputMode && uiState.inputFieldIndex == 0);
+        if (rInputting) {
+            glColor3f(1.0f, 1.0f, 0.0f);
+        } else {
+            glColor3f(0.9f, 0.9f, 0.9f);
+        }
+        drawText("Velocity R:", 0.15f, 0.40f, textSize * 0.9f);
+        
+        std::string rValue = (rInputting) ? uiState.inputBuffer + "|" : floatToString(r, 3);
+        drawText(rValue, 0.52f, 0.40f, textSize * 0.9f);
+        
+        // Theta field
+        bool thetaInputting = (uiState.textInputMode && uiState.inputFieldIndex == 1);
+        if (thetaInputting) {
+            glColor3f(1.0f, 1.0f, 0.0f);
+        } else {
+            glColor3f(0.9f, 0.9f, 0.9f);
+        }
+        drawText("Velocity θ:", 0.15f, 0.35f, textSize * 0.9f);
+        
+        std::string thetaValue = (thetaInputting) ? uiState.inputBuffer + "|°" : floatToString(theta, 1) + "°";
+        drawText(thetaValue, 0.52f, 0.35f, textSize * 0.9f);
+    }
+    
+    // Mass field
+    bool massInputting = (uiState.textInputMode && uiState.inputFieldIndex == 2);
+    if (massInputting) {
+        glColor3f(1.0f, 1.0f, 0.0f);
+    } else {
+        glColor3f(0.9f, 0.9f, 0.9f);
+    }
+    drawText("Mass:", 0.15f, 0.30f, textSize * 0.9f);
+    
+    std::string massValue = (massInputting) ? uiState.inputBuffer + "| kg" : floatToString(uiState.newBodyMass, 0) + " kg";
+    drawText(massValue, 0.52f, 0.30f, textSize * 0.9f);
+    
+    // Instructions
+    glColor3f(0.7f, 0.9f, 0.7f);
+    drawText("Keys: Type numbers, TAB to switch field", 0.15f, 0.20f, textSize * 0.7f);
+    drawText("C: Switch coordinate mode", 0.15f, 0.16f, textSize * 0.7f);
+    drawText("Enter: Add body, Esc: Cancel", 0.15f, 0.12f, textSize * 0.7f);
+}
+
+void drawAddBodyPreview(const UIState& uiState) {
+    if (!uiState.addBodyMode) return;
+    
+    // Draw preview circle at new body position
+    glColor4f(0.0f, 1.0f, 0.0f, 0.5f); // Semi-transparent green
+    glBegin(GL_TRIANGLE_FAN);
+    float radius = 0.03f;
+    glVertex2f(uiState.newBodyX, uiState.newBodyY);
+    for (int i = 0; i <= 32; i++) {
+        float angle = 2.0f * M_PI * i / 32;
+        glVertex2f(uiState.newBodyX + radius * cos(angle), 
+                   uiState.newBodyY + radius * sin(angle));
+    }
+    glEnd();
+    
+    // Draw preview velocity vector
+    if (uiState.newBodyVx != 0.0f || uiState.newBodyVy != 0.0f) {
+        float scale = 0.3f;
+        float endX = uiState.newBodyX + uiState.newBodyVx * scale;
+        float endY = uiState.newBodyY + uiState.newBodyVy * scale;
+        
+        glColor3f(0.0f, 1.0f, 0.0f);
+        glLineWidth(2.0f);
+        glBegin(GL_LINES);
+        glVertex2f(uiState.newBodyX, uiState.newBodyY);
+        glVertex2f(endX, endY);
+        glEnd();
+        
+        // Simple arrow head
+        float dx = endX - uiState.newBodyX;
+        float dy = endY - uiState.newBodyY;
+        float length = sqrt(dx * dx + dy * dy);
+        if (length > 0.01f) {
+            float dirX = dx / length;
+            float dirY = dy / length;
+            float headSize = 0.015f;
+            
+            glBegin(GL_TRIANGLES);
+            glVertex2f(endX, endY);
+            glVertex2f(endX - headSize * dirX + headSize * dirY * 0.5f, 
+                       endY - headSize * dirY - headSize * dirX * 0.5f);
+            glVertex2f(endX - headSize * dirX - headSize * dirY * 0.5f, 
+                       endY - headSize * dirY + headSize * dirX * 0.5f);
+            glEnd();
+        }
+        
+        glLineWidth(1.0f);
+    }
+}
+
+void startAddBodyMode(UIState& uiState) {
+    uiState.addBodyMode = true;
+    uiState.editMode = EditMode::ADD_BODY;
+    uiState.newBodyVx = 0.0f;
+    uiState.newBodyVy = 0.0f;
+    uiState.newBodyMass = 1000.0f;
+    uiState.currentEditField = 0;
+    uiState.textInputMode = false;
+    uiState.inputBuffer = "";
+}
+
+void setNewBodyPosition(UIState& uiState, float x, float y) {
+    uiState.newBodyX = x;
+    uiState.newBodyY = y;
+}
+
+void handleAddBodyEdit(UIState& uiState) {
+    // This function handles the add body editing initialization
+    // Similar to handleVelocityEdit and handleMassEdit
+}
+
+void applyAddBodyEdit(std::vector<Body>& bodies, const UIState& uiState) {
+    if (uiState.editMode != EditMode::ADD_BODY) return;
+    
+    // Create new body with random color
+    Body newBody;
+    newBody.x = uiState.newBodyX;
+    newBody.y = uiState.newBodyY;
+    newBody.vx = uiState.newBodyVx;
+    newBody.vy = uiState.newBodyVy;
+    newBody.mass = uiState.newBodyMass;
+    
+    // Random color
+    newBody.r = 0.3f + (rand() % 7) * 0.1f;
+    newBody.g = 0.3f + (rand() % 7) * 0.1f;
+    newBody.b = 0.3f + (rand() % 7) * 0.1f;
+    
+    bodies.push_back(newBody);
+}
+
+void cancelAddBody(UIState& uiState) {
+    uiState.addBodyMode = false;
+    uiState.editMode = EditMode::NONE;
+    uiState.textInputMode = false;
+    uiState.inputBuffer = "";
+    uiState.currentEditField = 0;
+}
+
+// Delete body functions
+void startDeleteConfirm(UIState& uiState) {
+    if (uiState.selectedBody == -1) return;
+    
+    uiState.editMode = EditMode::DELETE_CONFIRM;
+    std::cout << "Delete confirmation started for Body " << uiState.selectedBody + 1 << std::endl;
+}
+
+void drawDeleteConfirm(const std::vector<Body>& bodies, const UIState& uiState) {
+    if (uiState.editMode != EditMode::DELETE_CONFIRM || uiState.selectedBody == -1) return;
+    
+    // Responsive panel positioning
+    float aspectRatio = getAspectRatio();
+    float panelLeft = (aspectRatio > 1.5f) ? 0.2f : 0.15f;
+    float panelRight = (aspectRatio > 1.5f) ? 0.8f : 0.85f;
+    float panelTop = 0.4f;
+    float panelBottom = 0.1f;
+    
+    // Semi-transparent overlay
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.0f, 0.0f, 0.0f, 0.7f);
+    glBegin(GL_QUADS);
+    glVertex2f(-2.0f, 2.0f); glVertex2f(2.0f, 2.0f);
+    glVertex2f(2.0f, -2.0f); glVertex2f(-2.0f, -2.0f);
+    glEnd();
+    
+    // Delete confirmation background (red tint)
+    glColor4f(0.4f, 0.1f, 0.1f, 0.95f);
+    glBegin(GL_QUADS);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    glDisable(GL_BLEND);
+    
+    // Border
+    glColor3f(1.0f, 0.3f, 0.3f);
+    glLineWidth(3.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    glLineWidth(1.0f);
+    
+    float textSize = getResponsiveTextSizeSmall(BASE_TEXT_SIZE);
+    float textLeftMargin = panelLeft + 0.05f;
+    
+    // Warning title
+    glColor3f(1.0f, 0.4f, 0.4f);
+    drawText("DELETE BODY?", textLeftMargin, 0.32f, textSize * 1.2f);
+    
+    // Body info
+    const Body& body = bodies[uiState.selectedBody];
+    glColor3f(1.0f, 0.8f, 0.8f);
+    drawText("Body " + std::to_string(uiState.selectedBody + 1) + " - Mass: " + floatToString(body.mass, 0) + " kg", 
+             textLeftMargin, 0.28f, textSize * 0.9f);
+    drawText("Position: (" + floatToString(body.x, 2) + ", " + floatToString(body.y, 2) + ")",
+             textLeftMargin, 0.24f, textSize * 0.8f);
+    
+    // Warning message
+    glColor3f(1.0f, 1.0f, 0.6f);
+    if (bodies.size() <= 2) {
+        drawText("Cannot delete - minimum 2 bodies required!", textLeftMargin, 0.19f, textSize * 0.8f);
+    } else {
+        drawText("This action cannot be undone!", textLeftMargin, 0.19f, textSize * 0.8f);
+    }
+    
+    // Instructions
+    glColor3f(0.9f, 0.9f, 0.9f);
+    drawText("ENTER: Confirm Delete    ESC: Cancel", textLeftMargin, 0.14f, textSize * 0.9f);
+}
+
+bool deleteSelectedBody(std::vector<Body>& bodies, UIState& uiState) {
+    if (uiState.selectedBody == -1 || uiState.selectedBody >= bodies.size()) return false;
+    
+    // Don't allow deletion if less than 3 bodies (need minimum 2 to remain)
+    if (bodies.size() <= 2) {
+        std::cout << "Cannot delete - minimum 2 bodies required for simulation" << std::endl;
+        return false;
+    }
+    
+    std::cout << "Deleting Body " << uiState.selectedBody + 1 << std::endl;
+    
+    // Remove the selected body
+    bodies.erase(bodies.begin() + uiState.selectedBody);
+    
+    // Reset UI state
+    uiState.selectedBody = -1;
+    uiState.editMode = EditMode::NONE;
+    uiState.dragging = false;
+    
+    std::cout << "Body deleted. " << bodies.size() << " bodies remaining." << std::endl;
+    return true;
+}
+
+void cancelDeleteConfirm(UIState& uiState) {
+    uiState.editMode = EditMode::NONE;
+    std::cout << "Delete cancelled" << std::endl;
+}
+
+// Window size management functions
+void setWindowSize(int width, int height) {
+    g_uiWindowWidth = width;
+    g_uiWindowHeight = height;
+}
+
+void getWindowSize(int& width, int& height) {
+    width = g_uiWindowWidth;
+    height = g_uiWindowHeight;
+}
+
+float getAspectRatio() {
+    return (float)g_uiWindowWidth / (float)g_uiWindowHeight;
+}
+
+float getResponsiveTextSize(float baseSize) {
+    // 창 크기에 따라 텍스트 크기 조정
+    float aspectRatio = getAspectRatio();
+    float scaleFactor = 1.0f;
+    
+    // 기본 해상도 (1200x800)에서 최적화되었으므로 이를 기준으로 스케일링
+    float referenceWidth = 1200.0f;
+    float referenceHeight = 800.0f;
+    
+    // 창이 너무 작거나 클 때 텍스트 크기 조정
+    float widthScale = g_uiWindowWidth / referenceWidth;
+    float heightScale = g_uiWindowHeight / referenceHeight;
+    scaleFactor = std::min(widthScale, heightScale);
+    
+    // 창이 클 때는 텍스트 크기를 더 작게 조정
+    if (scaleFactor > 1.0f) {
+        scaleFactor = 1.0f + (scaleFactor - 1.0f) * 0.6f; // 60%로 스케일링 감소
+    }
+    
+    // 최소/최대 크기 제한 - 최대 크기를 더 작게 제한
+    scaleFactor = std::max(0.5f, std::min(scaleFactor, 1.4f));
+    
+    return baseSize * scaleFactor;
+}
+
+float getResponsiveTextSizeSmall(float baseSize) {
+    // 편집 창용 더 작은 텍스트 크기 - 최대화 시에 더 작게
+    float aspectRatio = getAspectRatio();
+    float scaleFactor = 1.0f;
+    
+    // 기본 해상도 (1200x800)에서 최적화되었으므로 이를 기준으로 스케일링
+    float referenceWidth = 1200.0f;
+    float referenceHeight = 800.0f;
+    
+    // 창이 너무 작거나 클 때 텍스트 크기 조정
+    float widthScale = g_uiWindowWidth / referenceWidth;
+    float heightScale = g_uiWindowHeight / referenceHeight;
+    scaleFactor = std::min(widthScale, heightScale);
+    
+    // 창이 클 때는 텍스트 크기를 더욱 작게 조정
+    if (scaleFactor > 1.0f) {
+        scaleFactor = 1.0f + (scaleFactor - 1.0f) * 0.4f; // 40%로 스케일링 더 감소
+    }
+    
+    // 최소/최대 크기 제한 - 편집창용으로 더 작게
+    scaleFactor = std::max(0.4f, std::min(scaleFactor, 1.1f));
+    
+    return baseSize * scaleFactor;
+}
+
+// Orbit trail functions
+void initializeTrails(OrbitTrails& trails, size_t numBodies) {
+    trails.trails.clear();
+    trails.trails.resize(numBodies);
+    trails.currentIndex = 0;
+}
+
+void updateTrails(OrbitTrails& trails, const std::vector<Body>& bodies) {
+    // Resize trails if number of bodies changed
+    if (trails.trails.size() != bodies.size()) {
+        initializeTrails(trails, bodies.size());
+    }
+    
+    // Add current positions to trails
+    for (size_t i = 0; i < bodies.size(); i++) {
+        auto& trail = trails.trails[i];
+        
+        // Add new point
+        TrailPoint newPoint;
+        newPoint.x = bodies[i].x;
+        newPoint.y = bodies[i].y;
+        newPoint.alpha = 1.0f;  // Full opacity for new point
+        
+        trail.push_back(newPoint);
+        
+        // Remove old points if trail is too long
+        while (trail.size() > 500) {  // Max 500 points per trail
+            trail.erase(trail.begin());
+        }
+        
+        // Update alpha values for fade effect
+        for (size_t j = 0; j < trail.size(); j++) {
+            float age = 1.0f - (float)j / (float)trail.size();
+            trail[j].alpha = age * 0.8f;  // Fade from 0.8 to 0
+        }
+    }
+}
+
+void drawTrails(const OrbitTrails& trails, const std::vector<Body>& bodies, bool showTrails) {
+    if (!showTrails) return;
+    
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    
+    for (size_t i = 0; i < trails.trails.size() && i < bodies.size(); i++) {
+        const auto& trail = trails.trails[i];
+        
+        if (trail.size() < 2) continue;  // Need at least 2 points for a line
+        
+        // Use body color for trail
+        glColor4f(bodies[i].r, bodies[i].g, bodies[i].b, 0.6f);
+        
+        // Draw trail as connected line segments
+        glLineWidth(2.0f);
+        glBegin(GL_LINE_STRIP);
+        
+        for (size_t j = 0; j < trail.size(); j++) {
+            float alpha = trail[j].alpha;
+            glColor4f(bodies[i].r, bodies[i].g, bodies[i].b, alpha);
+            glVertex2f(trail[j].x, trail[j].y);
+        }
+        
+        glEnd();
+    }
+    
+    glLineWidth(1.0f);  // Reset line width
+    glDisable(GL_BLEND);
+}
+
+void clearTrails(OrbitTrails& trails) {
+    for (auto& trail : trails.trails) {
+        trail.clear();
+    }
+    trails.currentIndex = 0;
+}
