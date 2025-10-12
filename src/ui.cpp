@@ -125,12 +125,6 @@ void drawInfo(const std::vector<Body>& bodies, const UIState& uiState) {
     drawText("C: Switch coords", textLeftMargin, -0.9f, getResponsiveTextSize(INFO_TEXT_SIZE));
     drawText("R: Reset", textLeftMargin, -0.95f, getResponsiveTextSize(INFO_TEXT_SIZE));
     
-    // Wall bounce coefficient display
-    glColor3f(0.9f, 0.7f, 0.4f);  // Orange color for physics info
-    float bounceCoeff = getBoundaryRestitution();
-    std::string bounceText = "Bounce: " + floatToString(bounceCoeff * 100, 0) + "%";
-    drawText(bounceText, textLeftMargin, -0.47f, getResponsiveTextSize(INFO_TEXT_SIZE));
-    
     // Status display - 화면 오른쪽 위 위치 조정
     if (uiState.paused) {
         glColor3f(1.0f, 0.2f, 0.2f);  // Red

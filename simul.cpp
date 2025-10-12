@@ -11,9 +11,9 @@
 std::vector<Body> bodies;
 
 std::vector<Body> initBodies = {
-    {0.0f, -0.07f, 0.0f, 0.0f, 650000.0f, 1.0f, 0.0f, 0.0f},   // 빨강-태양
-    {-0.85f - 0.06f, -0.07f, 0.0f, 0.235f + 0.061f, 100.0f, 0.0f, 1.0f, 0.0f},    // 초록-달
-    {-0.85f, -0.07f, 0.0f, 0.235f, 4000.0f, 0.0f, 0.0f, 1.0f}     // 파랑-지구
+    {0.0f, 0.0f, 0.0f, 0.0f, 650000.0f, 1.0f, 0.0f, 0.0f},   // 빨강-태양
+    {-1.2f-0.06f, 0.0f, 0.0f, 0.255f+0.061f, 100.0f, 0.0f, 1.0f, 0.0f},    // 초록-달
+    {-1.2f, 0.0f, 0.0f, 0.255f, 4000.0f, 0.0f, 0.0f, 1.0f}     // 파랑-지구
 };
 
 UIState uiState;
@@ -282,19 +282,6 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                 }
                 break;
                 
-            case GLFW_KEY_B:
-                // 벽 반발 계수 조정
-                {
-                    float currentRestitution = getBoundaryRestitution();
-                    float newRestitution = currentRestitution + 0.1f;
-                    if (newRestitution > 1.0f) {
-                        newRestitution = 0.0f;  // 순환: 1.0 다음은 0.0
-                    }
-                    setBoundaryRestitution(newRestitution);
-                    std::cout << "Wall bounce coefficient: " << (int)(newRestitution * 100) << "%" << std::endl;
-                }
-                break;
-                
             case GLFW_KEY_T:
                 // 궤도 추적 토글
                 uiState.showTrails = !uiState.showTrails;
@@ -505,7 +492,6 @@ int main() {
     std::cout << "  D/Delete: Delete selected body (min 2 required)" << std::endl;
     std::cout << "  P: Add new body" << std::endl;
     std::cout << "  T: Toggle orbit trails" << std::endl;
-    std::cout << "  B: Adjust wall bounce (0-100%)" << std::endl;
     std::cout << "  C: Toggle coordinate system (Cartesian/Polar)" << std::endl;
     std::cout << "  H: Toggle crosshair" << std::endl;
     std::cout << "  Numbers: Type to edit values" << std::endl;
@@ -521,12 +507,6 @@ int main() {
     while (!glfwWindowShouldClose(window)) {
         // 물리 시뮬레이션 업데이트 (RK4 방법 사용)
         updatePhysicsRK4(bodies, uiState.paused);
-        
-        // 벽 충돌 처리 (시뮬레이션이 실행 중일 때만)
-        if (!uiState.paused) {
-            float aspectRatio = (float)g_windowWidth / (float)g_windowHeight;
-            handleBoundaryCollisions(bodies, aspectRatio);
-        }
         
         // 궤도 추적 업데이트 (시뮬레이션이 실행 중일 때만)
         if (!uiState.paused) {
