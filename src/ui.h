@@ -44,6 +44,10 @@ struct UIState {
     float panStartCenterY = 0.0f;  // Zoom center at pan start Y
     bool showCrosshair = true;     // Show crosshair at screen center
     
+    // Camera follow system
+    bool followMode = false;       // Is camera following a body
+    int followTarget = -1;         // Index of body to follow (-1 = none)
+    
     // Velocity editing
     float editVelocityR = 0.0f;     // Polar magnitude
     float editVelocityTheta = 0.0f; // Polar angle (degrees)
@@ -76,7 +80,6 @@ struct UIState {
     
     // Orbit trail system
     bool showTrails = true;         // Show orbit trails
-    int maxTrailLength = 500;       // Maximum points per trail
 };
 
 // Structure for storing trail points
@@ -88,14 +91,10 @@ struct TrailPoint {
 // Global trail storage
 struct OrbitTrails {
     std::vector<std::vector<TrailPoint>> trails;  // One trail per body
-    int currentIndex = 0;                         // Current update index
 };
 
 // UI Drawing functions
 void drawInfo(const std::vector<Body>& bodies, const UIState& uiState);
-void drawVelocityEditor(const std::vector<Body>& bodies, UIState& uiState);
-void drawMassEditor(const std::vector<Body>& bodies, UIState& uiState);
-void drawCoordinateMode(CoordinateMode mode);
 void drawDirectionArrow(const UIState& uiState);
 void drawCurrentVelocityVector(const std::vector<Body>& bodies, const UIState& uiState);
 void drawAddBodyEditor(UIState& uiState);
@@ -103,13 +102,16 @@ void drawAddBodyPreview(const UIState& uiState);
 
 // Screen-fixed UI functions (not affected by zoom/pan)
 void setupScreenFixedProjection(int windowWidth, int windowHeight);
-void restoreWorldProjection(const UIState& uiState, int windowWidth, int windowHeight);
 void drawInfoFixed(const std::vector<Body>& bodies, const UIState& uiState, int windowWidth, int windowHeight);
 void drawCoordinateModeFixed(CoordinateMode mode, int windowWidth, int windowHeight);
 
 // UI interaction functions
 int checkBodyLabelClick(float mouseX, float mouseY, const std::vector<Body>& bodies, int windowWidth, int windowHeight);
 void screenToUICoords(float screenX, float screenY, float& uiX, float& uiY, int windowWidth, int windowHeight);
+
+// Body-attached editors
+void drawVelocityEditorAttached(const std::vector<Body>& bodies, UIState& uiState);
+void drawMassEditorAttached(const std::vector<Body>& bodies, UIState& uiState);
 
 // Orbit trail functions
 void initializeTrails(OrbitTrails& trails, size_t numBodies);
@@ -180,6 +182,9 @@ void screenToWorld(float screenX, float screenY, float& worldX, float& worldY, c
 void startPanning(UIState& uiState, float mouseX, float mouseY);
 void updatePanning(UIState& uiState, float mouseX, float mouseY, int windowWidth, int windowHeight);
 void stopPanning(UIState& uiState);
+
+// Camera follow function
+void updateCameraFollow(UIState& uiState, const std::vector<Body>& bodies);
 
 // Crosshair display
 void drawCrosshair(const UIState& uiState);

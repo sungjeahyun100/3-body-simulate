@@ -82,7 +82,7 @@ int main(){
     
     while (!glfwWindowShouldClose(window)) {
         
-        drawText("abcdefghijklmnopqrstuvwxyz;:,.-1234567890[]", 0.0f, 0.0f, 0.025);
+        drawText("abcdefghijklmnopqrstuvwxyz;:,.-1234567890[]|", 0.0f, 0.0f, 0.025);
 
         glfwSwapBuffers(window);
         glfwPollEvents();

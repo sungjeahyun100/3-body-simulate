@@ -134,12 +134,13 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
     }
     else if (button == GLFW_MOUSE_BUTTON_RIGHT) {
         if (action == GLFW_PRESS) {
-            // 우클릭으로 화면 패닝 시작 (편집 모드가 아닐 때만)
-            if (uiState.editMode == EditMode::NONE) {
+            // 우클릭으로 화면 패닝 시작 (followMode가 아닐 때만)
+            if (!uiState.followMode) {
                 double mouseX, mouseY;
                 glfwGetCursorPos(window, &mouseX, &mouseY);
                 startPanning(uiState, mouseX, mouseY);
             }
+            
         }
         else if (action == GLFW_RELEASE) {
             if (uiState.panning) {
@@ -175,10 +176,6 @@ void cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
 
 // 마우스 휠 콜백 (줌 기능)
 void scrollCallback(GLFWwindow* window, double xoffset, double yoffset) {
-    // 편집 모드에서는 줌 비활성화
-    if (uiState.editMode != EditMode::NONE) {
-        return;
-    }
     
     // 줌 변경량 계산
     float zoomDelta = yoffset * uiState.zoomSensitivity;
@@ -302,6 +299,22 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                 } else {
                     std::cout << "Orbit trails disabled" << std::endl;
                     clearTrails(orbitTrails);
+                }
+                break;
+                
+            case GLFW_KEY_F:
+                // 선택된 몸체 카메라 추적 토글
+                if (uiState.selectedBody != -1) {
+                    uiState.followMode = !uiState.followMode;
+                    if (uiState.followMode) {
+                        uiState.followTarget = uiState.selectedBody;
+                        std::cout << "Camera following body " << uiState.selectedBody << std::endl;
+                    } else {
+                        uiState.followTarget = -1;
+                        std::cout << "Camera follow disabled" << std::endl;
+                    }
+                } else {
+                    std::cout << "No body selected for camera follow" << std::endl;
                 }
                 break;
                 
@@ -520,6 +533,12 @@ int main() {
         // 물리 시뮬레이션 업데이트 (RK4 방법 사용)
         updatePhysicsRK4(bodies, uiState.paused);
         
+        // 카메라 추적 업데이트
+        updateCameraFollow(uiState, bodies);
+        
+        // 줌/패닝 투영 적용
+        applyZoomToProjection(uiState, g_windowWidth, g_windowHeight);
+        
         // 궤도 추적 업데이트 (시뮬레이션이 실행 중일 때만)
         if (!uiState.paused) {
             updateTrails(orbitTrails, bodies);
@@ -562,11 +581,12 @@ int main() {
         // 물체 추가 모드 미리보기 (world coordinates)
         drawAddBodyPreview(uiState);
         
-        // World coordinate editors (affected by zoom/pan)
+        // World coordinate editors (attached to bodies, affected by zoom/pan)
         if (uiState.editMode == EditMode::VELOCITY) {
-            drawVelocityEditor(bodies, uiState);
+
+            drawVelocityEditorAttached(bodies, uiState);
         } else if (uiState.editMode == EditMode::MASS) {
-            drawMassEditor(bodies, uiState);
+            drawMassEditorAttached(bodies, uiState);
         } else if (uiState.editMode == EditMode::ADD_BODY) {
             drawAddBodyEditor(uiState);
         } else if (uiState.editMode == EditMode::DELETE_CONFIRM) {

@@ -10,7 +10,7 @@
 // Font size constants - adjust these to change text size globally
 const float BASE_TEXT_SIZE = 0.025f;
 const float TITLE_TEXT_SIZE = BASE_TEXT_SIZE * 1.2f;
-const float INFO_TEXT_SIZE = BASE_TEXT_SIZE * 0.7f;
+const float INFO_TEXT_SIZE = BASE_TEXT_SIZE * 0.6f;
 const float STATUS_TEXT_SIZE = BASE_TEXT_SIZE * 1.5f;
 
 // Window size globals
@@ -1160,7 +1160,6 @@ float getResponsiveTextSizeSmall(float baseSize) {
 void initializeTrails(OrbitTrails& trails, size_t numBodies) {
     trails.trails.clear();
     trails.trails.resize(numBodies);
-    trails.currentIndex = 0;
 }
 
 void updateTrails(OrbitTrails& trails, const std::vector<Body>& bodies) {
@@ -1177,7 +1176,7 @@ void updateTrails(OrbitTrails& trails, const std::vector<Body>& bodies) {
         TrailPoint newPoint;
         newPoint.x = bodies[i].x;
         newPoint.y = bodies[i].y;
-        newPoint.alpha = 1.0f;  // Full opacity for new point
+        newPoint.alpha = 1.0f;  // Full opacity for new point (will be updated below)
         
         trail.push_back(newPoint);
         
@@ -1186,10 +1185,12 @@ void updateTrails(OrbitTrails& trails, const std::vector<Body>& bodies) {
             trail.erase(trail.begin());
         }
         
-        // Update alpha values for fade effect
+        // Update alpha values for fade effect with exponential decay
+        // j=0은 가장 오래된 점, j=trail.size()-1은 가장 새로운 점
         for (size_t j = 0; j < trail.size(); j++) {
-            float age = 1.0f - (float)j / (float)trail.size();
-            trail[j].alpha = age * 0.8f;  // Fade from 0.8 to 0
+            float normalizedAge = (float)j / (float)(trail.size() - 1);  // 0 (오래됨) ~ 1 (새로움)
+            // 지수적 감쇠: 새로운 점은 진하고, 오래된 점으로 갈수록 빠르게 사라짐
+            trail[j].alpha = pow(normalizedAge, 0.5f) * 0.9f + 0.05f;  // 0.05 ~ 0.95
         }
     }
 }
@@ -1205,10 +1206,7 @@ void drawTrails(const OrbitTrails& trails, const std::vector<Body>& bodies, bool
         
         if (trail.size() < 2) continue;  // Need at least 2 points for a line
         
-        // Use body color for trail
-        glColor4f(bodies[i].r, bodies[i].g, bodies[i].b, 0.6f);
-        
-        // Draw trail as connected line segments
+        // Draw trail as connected line segments with fade effect
         glLineWidth(2.0f);
         glBegin(GL_LINE_STRIP);
         
@@ -1229,7 +1227,6 @@ void clearTrails(OrbitTrails& trails) {
     for (auto& trail : trails.trails) {
         trail.clear();
     }
-    trails.currentIndex = 0;
 }
 
 // Zoom functions implementation
@@ -1631,4 +1628,195 @@ int checkBodyLabelClick(float mouseX, float mouseY, const std::vector<Body>& bod
     }
     
     return -1;  // No body label clicked
+}
+
+// Body-attached editors
+void drawVelocityEditorAttached(const std::vector<Body>& bodies, UIState& uiState) {
+    if (uiState.editMode != EditMode::VELOCITY || uiState.selectedBody == -1) return;
+    
+    const Body& body = bodies[uiState.selectedBody];
+    
+    // Position the editor near the selected body
+    float editorX = body.x + 0.15f;  // Offset to the right of the body
+    float editorY = body.y + 0.1f;   // Offset above the body
+    float editorWidth = 0.4f;
+    float editorHeight = 0.28f;      // Increased height for better spacing
+    
+    // Clamp to screen bounds (approximate)
+    if (editorX + editorWidth > 1.5f) editorX = body.x - editorWidth - 0.15f;  // Move to left
+    if (editorY + editorHeight > 1.0f) editorY = body.y - editorHeight - 0.1f; // Move below
+    if (editorX < -1.5f) editorX = -1.4f;
+    if (editorY < -1.0f) editorY = -0.9f;
+    
+    float panelLeft = editorX;
+    float panelRight = editorX + editorWidth;
+    float panelTop = editorY + editorHeight;
+    float panelBottom = editorY;
+    
+    // Editor background
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.1f, 0.1f, 0.3f, 0.9f);
+    glBegin(GL_QUADS);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    
+    // Border
+    glColor3f(body.r, body.g, body.b);  // Use body color for border
+    glLineWidth(2.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    glLineWidth(1.0f);
+    
+    // Connection line to body
+    glColor4f(body.r, body.g, body.b, 0.6f);
+    glBegin(GL_LINES);
+    glVertex2f(body.x, body.y);
+    glVertex2f(panelLeft, panelBottom + editorHeight * 0.5f);
+    glEnd();
+    glDisable(GL_BLEND);
+    
+    glColor3f(1.0f, 1.0f, 1.0f);
+    float textSize = getResponsiveTextSizeSmall(INFO_TEXT_SIZE);
+    float textLeftMargin = panelLeft + 0.02f;
+    
+    // Title
+    glColor3f(body.r, body.g, body.b);
+    std::string title = "Body " + std::to_string(uiState.selectedBody + 1) + " Velocity";
+    drawText(title, textLeftMargin, panelTop - 0.04f, textSize);
+    
+    glColor3f(1.0f, 1.0f, 1.0f);
+    
+    // Current values display
+    std::string coordLabel = (uiState.coordMode == CoordinateMode::CARTESIAN) ? "Cartesian [x,y]" : "Polar [r,th]";
+    drawText(coordLabel, textLeftMargin, panelTop - 0.08f, textSize * 0.8f);
+    
+    if (uiState.coordMode == CoordinateMode::CARTESIAN) {
+        // Cartesian mode
+        std::string vxLabel = "Vx: " + floatToString(uiState.editVelocityX, 3);
+        std::string vyLabel = "Vy: " + floatToString(uiState.editVelocityY, 3);
+        
+        if (uiState.currentEditField == 0) glColor3f(1.0f, 1.0f, 0.0f);
+        drawText(vxLabel, textLeftMargin, panelTop - 0.12f, textSize);
+        glColor3f(1.0f, 1.0f, 1.0f);
+        
+        if (uiState.currentEditField == 1) glColor3f(1.0f, 1.0f, 0.0f);
+        drawText(vyLabel, textLeftMargin, panelTop - 0.16f, textSize);
+        glColor3f(1.0f, 1.0f, 1.0f);
+    } else {
+        // Polar mode
+        std::string vrLabel = "Vr: " + floatToString(uiState.editVelocityR, 3);
+        std::string vthetaLabel = "Vth: " + floatToString(uiState.editVelocityTheta, 1) + "°";
+        
+        if (uiState.currentEditField == 0) glColor3f(1.0f, 1.0f, 0.0f);
+        drawText(vrLabel, textLeftMargin, panelTop - 0.12f, textSize);
+        glColor3f(1.0f, 1.0f, 1.0f);
+        
+        if (uiState.currentEditField == 1) glColor3f(1.0f, 1.0f, 0.0f);
+        drawText(vthetaLabel, textLeftMargin, panelTop - 0.16f, textSize);
+        glColor3f(1.0f, 1.0f, 1.0f);
+    }
+    
+    // Input prompt
+    if (uiState.textInputMode) {
+        glColor3f(1.0f, 1.0f, 0.0f);
+        std::string inputPrompt = "Input: " + uiState.inputBuffer + "_";
+        drawText(inputPrompt, textLeftMargin, panelTop - 0.20f, textSize);
+    }
+    
+    // Controls
+    glColor3f(0.8f, 0.8f, 0.8f);
+    drawText("TAB: Switch field | Enter: Apply | ESC: Cancel", textLeftMargin, panelBottom + 0.02f, textSize * 0.7f);
+}
+
+void drawMassEditorAttached(const std::vector<Body>& bodies, UIState& uiState) {
+    if (uiState.editMode != EditMode::MASS || uiState.selectedBody == -1) return;
+    
+    const Body& body = bodies[uiState.selectedBody];
+    
+    // Position the editor near the selected body
+    float editorX = body.x + 0.15f;  // Offset to the right of the body
+    float editorY = body.y + 0.05f;  // Offset above the body
+    float editorWidth = 0.35f;
+    float editorHeight = 0.22f;      // Increased height to prevent text overlap
+    
+    // Clamp to screen bounds (approximate)
+    if (editorX + editorWidth > 1.5f) editorX = body.x - editorWidth - 0.15f;  // Move to left
+    if (editorY + editorHeight > 1.0f) editorY = body.y - editorHeight - 0.1f; // Move below
+    if (editorX < -1.5f) editorX = -1.4f;
+    if (editorY < -1.0f) editorY = -0.9f;
+    
+    float panelLeft = editorX;
+    float panelRight = editorX + editorWidth;
+    float panelTop = editorY + editorHeight;
+    float panelBottom = editorY;
+    
+    // Editor background
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.3f, 0.1f, 0.1f, 0.9f); // Reddish background for mass
+    glBegin(GL_QUADS);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    
+    // Border
+    glColor3f(body.r, body.g, body.b);  // Use body color for border
+    glLineWidth(2.0f);
+    glBegin(GL_LINE_LOOP);
+    glVertex2f(panelLeft, panelTop); glVertex2f(panelRight, panelTop);
+    glVertex2f(panelRight, panelBottom); glVertex2f(panelLeft, panelBottom);
+    glEnd();
+    glLineWidth(1.0f);
+    
+    // Connection line to body
+    glColor4f(body.r, body.g, body.b, 0.6f);
+    glBegin(GL_LINES);
+    glVertex2f(body.x, body.y);
+    glVertex2f(panelLeft, panelBottom + editorHeight * 0.5f);
+    glEnd();
+    glDisable(GL_BLEND);
+    
+    glColor3f(1.0f, 1.0f, 1.0f);
+    float textSize = getResponsiveTextSizeSmall(INFO_TEXT_SIZE);
+    float textLeftMargin = panelLeft + 0.02f;
+    
+    // Title
+    glColor3f(body.r, body.g, body.b);
+    std::string title = "Body " + std::to_string(uiState.selectedBody + 1) + " Mass";
+    drawText(title, textLeftMargin, panelTop - 0.03f, textSize);
+    
+    // Current mass display
+    glColor3f(1.0f, 1.0f, 0.0f);
+    std::string massLabel = "Mass: " + floatToString(uiState.editMass, 1);
+    drawText(massLabel, textLeftMargin, panelTop - 0.07f, textSize);
+    
+    // Current mass from body
+    glColor3f(1.0f, 1.0f, 1.0f);
+    std::string currentMass = "Current: " + floatToString(body.mass, 1);
+    drawText(currentMass, textLeftMargin, panelTop - 0.11f, textSize * 0.8f);
+    
+    // Input prompt
+    if (uiState.textInputMode) {
+        glColor3f(1.0f, 1.0f, 0.0f);
+        std::string inputPrompt = "Input: " + uiState.inputBuffer + "_";
+        drawText(inputPrompt, textLeftMargin, panelTop - 0.15f, textSize);
+    }
+    
+    // Controls
+    glColor3f(0.8f, 0.8f, 0.8f);
+    drawText("Enter: Apply | ESC: Cancel", textLeftMargin, panelBottom + 0.02f, textSize * 0.7f);
+}
+
+// 카메라 추적 업데이트
+void updateCameraFollow(UIState& uiState, const std::vector<Body>& bodies) {
+    if (uiState.followMode && uiState.followTarget != -1 && 
+        uiState.followTarget < bodies.size()) {
+        const Body& target = bodies[uiState.followTarget];
+        uiState.zoomCenterX = target.x;
+        uiState.zoomCenterY = target.y;
+    }
 }

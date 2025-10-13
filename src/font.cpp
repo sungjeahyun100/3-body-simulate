@@ -144,6 +144,11 @@ void drawChar(char c, float x, float y, float size) {
             glVertex2f(x4, y4); glVertex2f(x0, y4);
             glEnd();
             break;
+        case '|':
+            glBegin(GL_LINE_STRIP);
+            glVertex2f(x2, y0); glVertex2f(x2, y4);
+            glEnd();
+            break;
         case ' ':
             // Space character - draw nothing
             break;
