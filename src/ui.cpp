@@ -17,6 +17,9 @@ const float STATUS_TEXT_SIZE = BASE_TEXT_SIZE * 1.5f;
 static int g_uiWindowWidth = 1200;
 static int g_uiWindowHeight = 800;
 
+//Trail size
+static int trail_size = 2500;
+
 // Convert float to string with specified precision
 std::string floatToString(float value, int precision) {
     std::ostringstream oss;
@@ -1179,7 +1182,7 @@ void updateTrails(OrbitTrails& trails, const std::vector<Body>& bodies) {
         trail.push_back(newPoint);
         
         // Remove old points if trail is too long
-        while (trail.size() > 500) {  // Max 500 points per trail
+        while (trail.size() > trail_size) {
             trail.erase(trail.begin());
         }
         
@@ -1485,6 +1488,31 @@ void drawInfoFixed(const std::vector<Body>& bodies, const UIState& uiState, int 
     for (size_t i = 0; i < bodies.size(); i++) {
         float yPos = 0.7f - i * 0.18f;
         
+        // Body label background (clickable area indicator)
+        float labelLeft = textLeftMargin - 0.01f;
+        float labelRight = textLeftMargin + 0.16f;
+        float labelTop = yPos + 0.02f;
+        float labelBottom = yPos - 0.02f;
+        
+        // Highlight if this body is selected
+        if ((int)i == uiState.selectedBody) {
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glColor4f(bodies[i].r, bodies[i].g, bodies[i].b, 0.3f); // Semi-transparent body color
+        } else {
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glColor4f(0.2f, 0.2f, 0.2f, 0.4f); // Dark gray for clickable area
+        }
+        
+        glBegin(GL_QUADS);
+        glVertex2f(labelLeft, labelTop);
+        glVertex2f(labelRight, labelTop);
+        glVertex2f(labelRight, labelBottom);
+        glVertex2f(labelLeft, labelBottom);
+        glEnd();
+        glDisable(GL_BLEND);
+        
         // Body color for identification
         glColor3f(bodies[i].r, bodies[i].g, bodies[i].b);
         
@@ -1559,4 +1587,48 @@ void drawCoordinateModeFixed(CoordinateMode mode, int windowWidth, int windowHei
     glMatrixMode(GL_PROJECTION);
     glLoadMatrixf(projMatrix);
     glMatrixMode(GL_MODELVIEW);
+}
+
+// UI interaction functions
+void screenToUICoords(float screenX, float screenY, float& uiX, float& uiY, int windowWidth, int windowHeight) {
+    float aspectRatio = (float)windowWidth / (float)windowHeight;
+    
+    // Convert screen coordinates to normalized UI coordinates (-1 to 1)
+    uiX = (screenX / windowWidth) * 2.0f - 1.0f;
+    uiY = 1.0f - (screenY / windowHeight) * 2.0f;
+    
+    // Apply aspect ratio correction
+    if (aspectRatio > 1.0f) {
+        uiX *= aspectRatio;
+    } else {
+        uiY /= aspectRatio;
+    }
+}
+
+int checkBodyLabelClick(float mouseX, float mouseY, const std::vector<Body>& bodies, int windowWidth, int windowHeight) {
+    float uiX, uiY;
+    screenToUICoords(mouseX, mouseY, uiX, uiY, windowWidth, windowHeight);
+    
+    float aspectRatio = (float)windowWidth / (float)windowHeight;
+    float panelLeft = -aspectRatio + 0.02f;
+    float textLeftMargin = panelLeft + 0.03f;
+    
+    // Check each body label area
+    for (size_t i = 0; i < bodies.size(); i++) {
+        float yPos = 0.7f - i * 0.18f;
+        
+        // Define clickable area for body label (approximate text bounds)
+        float labelLeft = textLeftMargin;
+        float labelRight = textLeftMargin + 0.15f; // Approximate width of "Body X" text
+        float labelTop = yPos + 0.02f;
+        float labelBottom = yPos - 0.02f;
+        
+        // Check if click is within this body's label area
+        if (uiX >= labelLeft && uiX <= labelRight && 
+            uiY >= labelBottom && uiY <= labelTop) {
+            return (int)i;  // Return body index
+        }
+    }
+    
+    return -1;  // No body label clicked
 }

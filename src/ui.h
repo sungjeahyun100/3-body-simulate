@@ -107,6 +107,10 @@ void restoreWorldProjection(const UIState& uiState, int windowWidth, int windowH
 void drawInfoFixed(const std::vector<Body>& bodies, const UIState& uiState, int windowWidth, int windowHeight);
 void drawCoordinateModeFixed(CoordinateMode mode, int windowWidth, int windowHeight);
 
+// UI interaction functions
+int checkBodyLabelClick(float mouseX, float mouseY, const std::vector<Body>& bodies, int windowWidth, int windowHeight);
+void screenToUICoords(float screenX, float screenY, float& uiX, float& uiY, int windowWidth, int windowHeight);
+
 // Orbit trail functions
 void initializeTrails(OrbitTrails& trails, size_t numBodies);
 void updateTrails(OrbitTrails& trails, const std::vector<Body>& bodies);

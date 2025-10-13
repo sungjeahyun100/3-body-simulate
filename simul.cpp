@@ -12,8 +12,8 @@ std::vector<Body> bodies;
 
 std::vector<Body> initBodies = {
     {0.0f, 0.0f, 0.0f, 0.0f, 650000.0f, 1.0f, 0.0f, 0.0f},   // 빨강-태양
-    {-1.2f-0.06f, 0.0f, 0.0f, 0.255f+0.061f, 100.0f, 0.0f, 1.0f, 0.0f},    // 초록-달
-    {-1.2f, 0.0f, 0.0f, 0.255f, 4000.0f, 0.0f, 0.0f, 1.0f}     // 파랑-지구
+    {-1.2f-0.06f, 0.0f, 0.0f, 0.195f+0.061f, 100.0f, 0.0f, 1.0f, 0.0f},    // 초록-달
+    {-1.2f, 0.0f, 0.0f, 0.195f, 4000.0f, 0.0f, 0.0f, 1.0f}     // 파랑-지구
 };
 
 UIState uiState;
@@ -94,6 +94,18 @@ void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods) {
                 return;
             }
             
+            // Check if clicked on body label in info panel first
+            int labelClickedBody = checkBodyLabelClick(mouseX, mouseY, bodies, g_windowWidth, g_windowHeight);
+            if (labelClickedBody != -1) {
+                uiState.selectedBody = labelClickedBody;
+                std::cout << "Selected Body " << uiState.selectedBody + 1 << " (via label click)" << std::endl;
+                std::cout << "Position: (" << bodies[uiState.selectedBody].x << ", " << bodies[uiState.selectedBody].y << ")" << std::endl;
+                std::cout << "Velocity: (" << bodies[uiState.selectedBody].vx << ", " << bodies[uiState.selectedBody].vy << ")" << std::endl;
+                std::cout << "Mass: " << bodies[uiState.selectedBody].mass << std::endl;
+                return;
+            }
+            
+            // If no label clicked, try to select body by clicking near it
             uiState.selectedBody = findNearestBody(glX, glY);
             if (uiState.selectedBody != -1) {
                 uiState.dragging = true;
