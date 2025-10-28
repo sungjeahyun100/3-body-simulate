@@ -29,7 +29,7 @@ struct UIState {
     bool paused = false;
     
     // Zoom system
-    float zoomLevel = 1.0f;        // Current zoom level (1.0 = normal, >1.0 = zoomed in, <1.0 = zoomed out)
+    float zoomLevel = 0.50f;       // Start slightly zoomed out so the scene fits better
     float zoomCenterX = 0.0f;      // Zoom center X in world coordinates
     float zoomCenterY = 0.0f;      // Zoom center Y in world coordinates
     float minZoom = 0.1f;          // Minimum zoom level (max zoom out)

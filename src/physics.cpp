@@ -1,4 +1,5 @@
 #include "physics.h"
+#include <algorithm>
 #include <cmath>
 
 // Physics constants
@@ -195,6 +196,73 @@ void updatePhysicsRK4(std::vector<Body>& bodies, bool paused) {
 
 // Boundary collision variables
 static float boundaryRestitution = 0.8f;  // Energy loss on collision (0=완전 비탄성, 1=완전 탄성)
+
+void updateBodyCollisions(std::vector<Body>& bodies){
+    const float restitution = 1.0f; // Perfectly elastic by default
+
+    for (size_t i = 0; i < bodies.size(); ++i) {
+        for (size_t j = i + 1; j < bodies.size(); ++j) {
+            Body& a = bodies[i];
+            Body& b = bodies[j];
+
+            float radiusA = (a.size_R > 0.0f) ? a.size_R : 0.02f;
+            float radiusB = (b.size_R > 0.0f) ? b.size_R : 0.02f;
+            float combinedRadius = radiusA + radiusB;
+
+            float dx = b.x - a.x;
+            float dy = b.y - a.y;
+            float distanceSq = dx * dx + dy * dy;
+
+            if (distanceSq >= combinedRadius * combinedRadius) {
+                continue;
+            }
+
+            float distance = std::sqrt(distanceSq);
+            if (distance < 1e-6f) {
+                distance = combinedRadius; // Avoid division by zero by treating as full overlap
+                dx = combinedRadius;
+                dy = 0.0f;
+            }
+
+            float nx = dx / distance;
+            float ny = dy / distance;
+
+            float overlap = combinedRadius - distance;
+            if (overlap > 0.0f) {
+                float totalMass = std::max(a.mass + b.mass, 1.0f);
+                float weightA = b.mass / totalMass;
+                float weightB = a.mass / totalMass;
+
+                a.x -= nx * overlap * weightA;
+                a.y -= ny * overlap * weightA;
+                b.x += nx * overlap * weightB;
+                b.y += ny * overlap * weightB;
+            }
+
+            float relVel = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+            if (relVel > 0.0f) {
+                continue; // Bodies already moving apart along the normal
+            }
+
+            float invMassA = (a.mass > 0.0f) ? 1.0f / a.mass : 0.0f;
+            float invMassB = (b.mass > 0.0f) ? 1.0f / b.mass : 0.0f;
+            float impulse = -(1.0f + restitution) * relVel;
+            float invMassSum = invMassA + invMassB;
+
+            if (invMassSum <= 0.0f) {
+                continue;
+            }
+
+            impulse /= invMassSum;
+
+            a.vx += impulse * nx * invMassA;
+            a.vy += impulse * ny * invMassA;
+            b.vx -= impulse * nx * invMassB;
+            b.vy -= impulse * ny * invMassB;
+        }
+    }
+}
+
 
 // Boundary collision functions
 void handleBoundaryCollisions(std::vector<Body>& bodies, float aspectRatio) {

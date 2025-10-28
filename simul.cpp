@@ -11,9 +11,16 @@
 std::vector<Body> bodies;
 
 std::vector<Body> initBodies = {
-    {0.0f, 0.0f, 0.0f, 0.0f, 650000.0f, 1.0f, 0.0f, 0.0f},   // 빨강-태양
-    {-1.2f-0.06f, 0.0f, 0.0f, 0.195f+0.061f, 100.0f, 0.0f, 1.0f, 0.0f},    // 초록-달
-    {-1.2f, 0.0f, 0.0f, 0.195f, 4000.0f, 0.0f, 0.0f, 1.0f}     // 파랑-지구
+    {0.1, 0.0f, 0.0f, 0.0f, 0.0f, 650000.0f, 1.0f, 0.0f, 0.0f},   // 빨강-태양
+    {0.002, -1.2f-0.06f, 0.0f, 0.0f, 0.195f+0.061f, 100.0f, 0.0f, 1.0f, 0.0f},    // 초록-달
+    {0.005, -1.2f, 0.0f, 0.0f, 0.195f, 4000.0f, 0.0f, 0.0f, 1.0f}     // 파랑-지구
+};
+
+std::vector<Body> bodySet = {
+    // Body order matches classic Moore–Chenciner figure-eight
+    {0.04f,  0.0f, -0.0f, -0.46620368f, -0.43236573f, 1.0e6f, 1.0f, 0.3f, 0.3f},
+    {0.04f, -0.0f,  0.0f, -0.46620368f, -0.43236573f, 1.0e6f, 0.3f, 1.0f, 0.3f},
+    {0.04f,  0.0f,  0.0f,  0.93240737f,  0.86473146f, 1.0e6f, 0.3f, 0.3f, 1.0f}
 };
 
 UIState uiState;
@@ -210,7 +217,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
                 break;
             case GLFW_KEY_R:
                 // 초기화
-                bodies = initBodies;
+                bodies = bodySet;
                 uiState.selectedBody = -1;
                 uiState.dragging = false;
                 uiState.paused = false;
@@ -497,7 +504,7 @@ int main() {
     applyZoomToProjection(uiState, g_windowWidth, g_windowHeight);
     
     // 초기 물체 설정
-    bodies = initBodies;
+    bodies = bodySet;
     
     // UI 상태는 이미 기본값으로 초기화됨
     
@@ -532,6 +539,7 @@ int main() {
     while (!glfwWindowShouldClose(window)) {
         // 물리 시뮬레이션 업데이트 (RK4 방법 사용)
         updatePhysicsRK4(bodies, uiState.paused);
+        updateBodyCollisions(bodies);
         
         // 카메라 추적 업데이트
         updateCameraFollow(uiState, bodies);
@@ -558,8 +566,8 @@ int main() {
                 glBegin(GL_LINE_LOOP);
                 for (int j = 0; j < 20; j++) {
                     float angle = 2.0f * M_PI * j / 20;
-                    glVertex2f(bodies[i].x + 0.05f * cos(angle), 
-                              bodies[i].y + 0.05f * sin(angle));
+                    glVertex2f(bodies[i].x + bodies[i].size_R * cos(angle), 
+                              bodies[i].y + bodies[i].size_R * sin(angle));
                 }
                 glEnd();
             } else {

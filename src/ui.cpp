@@ -1267,10 +1267,11 @@ void updateZoom(UIState& uiState, float deltaZoom, float mouseX, float mouseY) {
 }
 
 void resetZoom(UIState& uiState) {
-    uiState.zoomLevel = 1.0f;
+    uiState.zoomLevel = 0.50f;
     uiState.zoomCenterX = 0.0f;
     uiState.zoomCenterY = 0.0f;
-    std::cout << "Zoom reset to default" << std::endl;
+    std::cout << "Zoom reset to default (level=" << std::fixed << std::setprecision(2)
+              << uiState.zoomLevel << ")" << std::endl;
 }
 
 void applyZoomToProjection(const UIState& uiState, int windowWidth, int windowHeight) {

@@ -5,6 +5,7 @@
 #include <cmath>
 
 struct Body {
+    float size_R; //면적: PI*size_R^2
     float x, y, vx, vy, mass;
     float r, g, b;
 };
@@ -34,6 +35,7 @@ void calculateForce(const Body& a, const Body& b, float& fx, float& fy);
 void calculateTotalForce(const Body& body, const std::vector<Body>& allBodies, float& fx, float& fy);
 void updatePhysics(std::vector<Body>& bodies, bool paused);
 void updatePhysicsRK4(std::vector<Body>& bodies, bool paused);
+void updateBodyCollisions(std::vector<Body>& bodies);
 
 // Boundary collision functions
 void handleBoundaryCollisions(std::vector<Body>& bodies, float aspectRatio);
